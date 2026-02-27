@@ -1,6 +1,7 @@
 package chunker_test
 
 import (
+	"strings"
 	"testing"
 
 	sitter_py "github.com/smacker/go-tree-sitter/python"
@@ -58,6 +59,12 @@ func TestTreeSitterChunker_Python(t *testing.T) {
 	if greet.ID == "" {
 		t.Error("greet.ID is empty")
 	}
+	if !strings.Contains(greet.Content, "def greet") {
+		t.Errorf("greet.Content does not contain %q: %q", "def greet", greet.Content)
+	}
+	if greet.EndLine != 3 {
+		t.Errorf("greet.EndLine = %d, want 3", greet.EndLine)
+	}
 
 	animal, ok := bySymbol["Animal"]
 	if !ok {
@@ -68,6 +75,9 @@ func TestTreeSitterChunker_Python(t *testing.T) {
 	}
 	if animal.StartLine != 5 {
 		t.Errorf("animal.StartLine = %d, want 5", animal.StartLine)
+	}
+	if animal.EndLine != 7 {
+		t.Errorf("animal.EndLine = %d, want 7", animal.EndLine)
 	}
 
 	speak, ok := bySymbol["speak"]
@@ -201,6 +211,271 @@ func TestTreeSitterChunker_Rust(t *testing.T) {
 	check("MAX_SIZE", "const")
 }
 
+var sampleJavaScript = []byte(`function greet(name) {
+  return "hello " + name;
+}
+
+class Animal {
+  speak() {
+    return "...";
+  }
+}
+`)
+
+func TestTreeSitterChunker_JavaScript(t *testing.T) {
+	langs := chunker.DefaultLanguages()
+	c, ok := langs[".js"]
+	if !ok {
+		t.Fatal("DefaultLanguages() missing .js")
+	}
+
+	chunks, err := c.Chunk("sample.js", sampleJavaScript)
+	if err != nil {
+		t.Fatalf("Chunk: %v", err)
+	}
+
+	bySymbol := make(map[string]chunker.Chunk)
+	for _, ch := range chunks {
+		bySymbol[ch.Symbol] = ch
+	}
+
+	check := func(symbol, kind string) {
+		t.Helper()
+		ch, ok := bySymbol[symbol]
+		if !ok {
+			t.Errorf("missing chunk %q (got: %v)", symbol, symbolNames(chunks))
+			return
+		}
+		if ch.Kind != kind {
+			t.Errorf("chunk %q kind = %q, want %q", symbol, ch.Kind, kind)
+		}
+	}
+
+	check("greet", "function")
+	check("Animal", "type")
+	check("speak", "method")
+}
+
+var sampleTSX = []byte(`export function render(): JSX.Element {
+  return <div />;
+}
+
+export class App {
+  render(): JSX.Element {
+    return <div />;
+  }
+}
+`)
+
+func TestTreeSitterChunker_TSX(t *testing.T) {
+	langs := chunker.DefaultLanguages()
+	c, ok := langs[".tsx"]
+	if !ok {
+		t.Fatal("DefaultLanguages() missing .tsx")
+	}
+
+	chunks, err := c.Chunk("sample.tsx", sampleTSX)
+	if err != nil {
+		t.Fatalf("Chunk: %v", err)
+	}
+
+	// There will be two "render" chunks: one function and one method.
+	// Use a multi-map to track all chunks by symbol.
+	bySymbolKind := make(map[string]map[string]bool) // symbol -> set of kinds
+	for _, ch := range chunks {
+		if bySymbolKind[ch.Symbol] == nil {
+			bySymbolKind[ch.Symbol] = make(map[string]bool)
+		}
+		bySymbolKind[ch.Symbol][ch.Kind] = true
+	}
+
+	if !bySymbolKind["render"]["function"] {
+		t.Errorf("missing chunk render/function (got symbols: %v)", symbolNames(chunks))
+	}
+	if !bySymbolKind["render"]["method"] {
+		t.Errorf("missing chunk render/method (got symbols: %v)", symbolNames(chunks))
+	}
+	if !bySymbolKind["App"]["type"] {
+		t.Errorf("missing chunk App/type (got symbols: %v)", symbolNames(chunks))
+	}
+}
+
+var sampleRuby = []byte(`def greet(name)
+  "hello #{name}"
+end
+
+class Animal
+  def speak
+    "..."
+  end
+end
+`)
+
+func TestTreeSitterChunker_Ruby(t *testing.T) {
+	langs := chunker.DefaultLanguages()
+	c, ok := langs[".rb"]
+	if !ok {
+		t.Fatal("DefaultLanguages() missing .rb")
+	}
+
+	chunks, err := c.Chunk("sample.rb", sampleRuby)
+	if err != nil {
+		t.Fatalf("Chunk: %v", err)
+	}
+
+	bySymbol := make(map[string]chunker.Chunk)
+	for _, ch := range chunks {
+		bySymbol[ch.Symbol] = ch
+	}
+
+	check := func(symbol, kind string) {
+		t.Helper()
+		ch, ok := bySymbol[symbol]
+		if !ok {
+			t.Errorf("missing chunk %q (got: %v)", symbol, symbolNames(chunks))
+			return
+		}
+		if ch.Kind != kind {
+			t.Errorf("chunk %q kind = %q, want %q", symbol, ch.Kind, kind)
+		}
+	}
+
+	check("greet", "function")
+	check("Animal", "type")
+	check("speak", "function") // Ruby methods map to "function" kind
+}
+
+var sampleJava = []byte(`public class Calculator {
+    public int add(int a, int b) {
+        return a + b;
+    }
+}
+`)
+
+func TestTreeSitterChunker_Java(t *testing.T) {
+	langs := chunker.DefaultLanguages()
+	c, ok := langs[".java"]
+	if !ok {
+		t.Fatal("DefaultLanguages() missing .java")
+	}
+
+	chunks, err := c.Chunk("sample.java", sampleJava)
+	if err != nil {
+		t.Fatalf("Chunk: %v", err)
+	}
+
+	bySymbol := make(map[string]chunker.Chunk)
+	for _, ch := range chunks {
+		bySymbol[ch.Symbol] = ch
+	}
+
+	check := func(symbol, kind string) {
+		t.Helper()
+		ch, ok := bySymbol[symbol]
+		if !ok {
+			t.Errorf("missing chunk %q (got: %v)", symbol, symbolNames(chunks))
+			return
+		}
+		if ch.Kind != kind {
+			t.Errorf("chunk %q kind = %q, want %q", symbol, ch.Kind, kind)
+		}
+	}
+
+	check("Calculator", "type")
+	check("add", "method")
+}
+
+var sampleC = []byte(`int add(int a, int b) {
+    return a + b;
+}
+
+int *get_ptr(void) {
+    return 0;
+}
+
+struct Point {
+    int x;
+    int y;
+};
+`)
+
+func TestTreeSitterChunker_C(t *testing.T) {
+	langs := chunker.DefaultLanguages()
+	c, ok := langs[".c"]
+	if !ok {
+		t.Fatal("DefaultLanguages() missing .c")
+	}
+
+	chunks, err := c.Chunk("sample.c", sampleC)
+	if err != nil {
+		t.Fatalf("Chunk: %v", err)
+	}
+
+	bySymbol := make(map[string]chunker.Chunk)
+	for _, ch := range chunks {
+		bySymbol[ch.Symbol] = ch
+	}
+
+	check := func(symbol, kind string) {
+		t.Helper()
+		ch, ok := bySymbol[symbol]
+		if !ok {
+			t.Errorf("missing chunk %q (got: %v)", symbol, symbolNames(chunks))
+			return
+		}
+		if ch.Kind != kind {
+			t.Errorf("chunk %q kind = %q, want %q", symbol, ch.Kind, kind)
+		}
+	}
+
+	check("add", "function")
+	check("get_ptr", "function") // requires pointer-return fix
+	check("Point", "type")
+}
+
+var sampleCPP = []byte(`class Vec2 {
+    float x;
+    float y;
+};
+
+int add(int a, int b) {
+    return a + b;
+}
+`)
+
+func TestTreeSitterChunker_CPP(t *testing.T) {
+	langs := chunker.DefaultLanguages()
+	c, ok := langs[".cpp"]
+	if !ok {
+		t.Fatal("DefaultLanguages() missing .cpp")
+	}
+
+	chunks, err := c.Chunk("sample.cpp", sampleCPP)
+	if err != nil {
+		t.Fatalf("Chunk: %v", err)
+	}
+
+	bySymbol := make(map[string]chunker.Chunk)
+	for _, ch := range chunks {
+		bySymbol[ch.Symbol] = ch
+	}
+
+	check := func(symbol, kind string) {
+		t.Helper()
+		ch, ok := bySymbol[symbol]
+		if !ok {
+			t.Errorf("missing chunk %q (got: %v)", symbol, symbolNames(chunks))
+			return
+		}
+		if ch.Kind != kind {
+			t.Errorf("chunk %q kind = %q, want %q", symbol, ch.Kind, kind)
+		}
+	}
+
+	check("Vec2", "type")
+	check("add", "function")
+}
+
 func symbolNames(chunks []chunker.Chunk) []string {
 	names := make([]string, len(chunks))
 	for i, c := range chunks {
@@ -236,10 +511,46 @@ func TestMultiChunker_Dispatch(t *testing.T) {
 }
 
 func TestDefaultLanguages_AllExtensionsPresent(t *testing.T) {
+	// trivialSources maps file extensions to minimal source containing one named declaration.
+	trivialSources := map[string][]byte{
+		".go":   []byte("package main\nfunc Foo() {}"),
+		".ts":   []byte("function foo() {}"),
+		".tsx":  []byte("function foo() { return <div/>; }"),
+		".js":   []byte("function foo() {}"),
+		".jsx":  []byte("function foo() { return <div/>; }"),
+		".mjs":  []byte("function foo() {}"),
+		".py":   []byte("def foo():\n    pass"),
+		".rs":   []byte("fn foo() {}"),
+		".rb":   []byte("def foo\nend"),
+		".java": []byte("class Foo {}"),
+		".c":    []byte("void foo(void) {}"),
+		".h":    []byte("void foo(void) {}"),
+		".cpp":  []byte("void foo() {}"),
+		".cc":   []byte("void foo() {}"),
+		".cxx":  []byte("void foo() {}"),
+		".hpp":  []byte("void foo() {}"),
+	}
+
 	langs := chunker.DefaultLanguages()
+
 	for _, ext := range chunker.SupportedExtensions() {
-		if _, ok := langs[ext]; !ok {
+		c, ok := langs[ext]
+		if !ok {
 			t.Errorf("DefaultLanguages() missing extension %q", ext)
+			continue
+		}
+		src, ok := trivialSources[ext]
+		if !ok {
+			t.Errorf("trivialSources missing fixture for %q", ext)
+			continue
+		}
+		chunks, err := c.Chunk("test"+ext, src)
+		if err != nil {
+			t.Errorf("Chunk(%q): %v", ext, err)
+			continue
+		}
+		if len(chunks) == 0 {
+			t.Errorf("Chunk(%q): expected at least 1 chunk, got 0", ext)
 		}
 	}
 }
@@ -259,3 +570,4 @@ func mustPyChunker(t *testing.T) *chunker.TreeSitterChunker {
 	}
 	return c
 }
+

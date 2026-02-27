@@ -108,6 +108,7 @@ func DefaultLanguages() map[string]Chunker {
 		Language: sitter_c.GetLanguage(),
 		Queries: []QueryDef{
 			{Pattern: `(function_definition declarator: (function_declarator declarator: (identifier) @name)) @decl`, Kind: "function"},
+			{Pattern: `(function_definition declarator: (pointer_declarator declarator: (function_declarator declarator: (identifier) @name))) @decl`, Kind: "function"},
 			{Pattern: `(struct_specifier name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(enum_specifier name: (type_identifier) @name) @decl`, Kind: "type"},
 		},
@@ -117,6 +118,7 @@ func DefaultLanguages() map[string]Chunker {
 		Language: sitter_cpp.GetLanguage(),
 		Queries: []QueryDef{
 			{Pattern: `(function_definition declarator: (function_declarator declarator: (identifier) @name)) @decl`, Kind: "function"},
+			{Pattern: `(function_definition declarator: (pointer_declarator declarator: (function_declarator declarator: (identifier) @name))) @decl`, Kind: "function"},
 			{Pattern: `(class_specifier name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(struct_specifier name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(enum_specifier name: (type_identifier) @name) @decl`, Kind: "type"},
