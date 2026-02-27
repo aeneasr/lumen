@@ -45,6 +45,7 @@ func New(dsn string, dimensions int) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	db.SetMaxOpenConns(1)
 
 	// Enable WAL mode, foreign keys, and write-performance settings.
 	pragmas := []string{

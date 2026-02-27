@@ -201,13 +201,12 @@ func TestStore_Pragmas(t *testing.T) {
 	}
 	defer s.Close()
 
-	var mode string
+	var mode int
 	if err := s.db.QueryRow("PRAGMA synchronous").Scan(&mode); err != nil {
 		t.Fatal(err)
 	}
-	// 1 = NORMAL
-	if mode != "1" {
-		t.Fatalf("expected synchronous=NORMAL(1), got %s", mode)
+	if mode != 1 { // 1 = NORMAL
+		t.Fatalf("expected synchronous=NORMAL(1), got %d", mode)
 	}
 }
 
