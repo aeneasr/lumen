@@ -51,7 +51,7 @@ func NewIndexer(dsn string, emb embedder.Embedder) (*Indexer, error) {
 	return &Indexer{
 		store:   s,
 		emb:     emb,
-		chunker: chunker.NewGoAST(),
+		chunker: chunker.NewMultiChunker(chunker.DefaultLanguages()),
 	}, nil
 }
 
@@ -63,7 +63,7 @@ func (idx *Indexer) Close() error {
 // Index indexes the project at projectDir. If force is true, all files are
 // re-indexed regardless of whether they have changed.
 func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool) (IndexStats, error) {
-	curTree, err := merkle.BuildTree(projectDir, nil)
+	curTree, err := merkle.BuildTree(projectDir, merkle.MakeExtSkip(chunker.SupportedExtensions()))
 	if err != nil {
 		return IndexStats{}, fmt.Errorf("build merkle tree: %w", err)
 	}
@@ -83,7 +83,7 @@ func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool) (I
 // EnsureFresh checks if the index is stale and re-indexes if needed.
 // Returns whether a re-index occurred, the stats, and any error.
 func (idx *Indexer) EnsureFresh(ctx context.Context, projectDir string) (bool, IndexStats, error) {
-	curTree, err := merkle.BuildTree(projectDir, nil)
+	curTree, err := merkle.BuildTree(projectDir, merkle.MakeExtSkip(chunker.SupportedExtensions()))
 	if err != nil {
 		return false, IndexStats{}, fmt.Errorf("build merkle tree: %w", err)
 	}

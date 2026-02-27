@@ -34,6 +34,26 @@ func DefaultSkip(relPath string, isDir bool) bool {
 	return !strings.HasSuffix(base, ".go")
 }
 
+// MakeExtSkip returns a SkipFunc that passes only files whose extension is in exts.
+// The standard skip directories (.git, vendor, testdata, node_modules, _build) are always skipped.
+func MakeExtSkip(exts []string) SkipFunc {
+	extSet := make(map[string]bool, len(exts))
+	for _, ext := range exts {
+		extSet[ext] = true
+	}
+	return func(relPath string, isDir bool) bool {
+		base := filepath.Base(relPath)
+		if isDir {
+			switch base {
+			case ".git", "vendor", "testdata", "node_modules", "_build":
+				return true
+			}
+			return false
+		}
+		return !extSet[filepath.Ext(relPath)]
+	}
+}
+
 const merkleWorkers = 8
 
 // BuildTree walks rootDir and computes a Merkle tree.
