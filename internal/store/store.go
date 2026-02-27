@@ -146,7 +146,7 @@ func (s *Store) GetMetaBatch(keys []string) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query meta batch: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make(map[string]string, len(keys))
 	for rows.Next() {
