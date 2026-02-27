@@ -21,34 +21,25 @@ type Tree struct {
 // SkipFunc returns true for paths that should be skipped during tree building.
 type SkipFunc func(relPath string, isDir bool) bool
 
-// DefaultSkip skips .git, vendor, testdata, node_modules, and non-.go files.
+// DefaultSkip skips directories in SkipDirs and non-.go files.
 func DefaultSkip(relPath string, isDir bool) bool {
 	base := filepath.Base(relPath)
 	if isDir {
-		switch base {
-		case ".git", "vendor", "testdata", "node_modules", "_build":
-			return true
-		}
-		return false
+		return SkipDirs[base]
 	}
 	return !strings.HasSuffix(base, ".go")
 }
 
 // MakeExtSkip returns a SkipFunc that passes only files whose extension is in exts.
-// The standard skip directories (.git, vendor, testdata, node_modules, _build) are always skipped.
+// Directories in SkipDirs are always skipped.
 func MakeExtSkip(exts []string) SkipFunc {
 	extSet := make(map[string]bool, len(exts))
 	for _, ext := range exts {
 		extSet[ext] = true
 	}
 	return func(relPath string, isDir bool) bool {
-		base := filepath.Base(relPath)
 		if isDir {
-			switch base {
-			case ".git", "vendor", "testdata", "node_modules", "_build":
-				return true
-			}
-			return false
+			return SkipDirs[filepath.Base(relPath)]
 		}
 		return !extSet[filepath.Ext(relPath)]
 	}
