@@ -18,11 +18,6 @@ func NewGoAST() *GoAST {
 	return &GoAST{}
 }
 
-// Supports returns true for language "go".
-func (g *GoAST) Supports(language string) bool {
-	return language == "go"
-}
-
 // Chunk parses a Go source file and returns one Chunk per top-level
 // declaration, including the package doc chunk.
 func (g *GoAST) Chunk(filePath string, content []byte) ([]Chunk, error) {
@@ -171,7 +166,6 @@ func makeChunk(filePath, symbol, kind string, startLine, endLine int, content st
 	return Chunk{
 		ID:        hash[:16],
 		FilePath:  filePath,
-		Language:  "go",
 		Symbol:    symbol,
 		Kind:      kind,
 		StartLine: startLine,

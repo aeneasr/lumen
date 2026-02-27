@@ -1,3 +1,4 @@
+// Package merkle provides file-tree hashing for change detection.
 package merkle
 
 import (
@@ -15,7 +16,6 @@ import (
 type Tree struct {
 	RootHash string            // SHA-256 of the root directory
 	Files    map[string]string // relative path -> content SHA-256 hash
-	Dirs     map[string]string // relative dir path -> directory hash
 }
 
 // SkipFunc returns true for paths that should be skipped during tree building.
@@ -110,7 +110,6 @@ func BuildTree(rootDir string, skip SkipFunc) (*Tree, error) {
 
 	tree := &Tree{
 		Files: make(map[string]string, len(relPaths)),
-		Dirs:  make(map[string]string),
 	}
 	for r := range results {
 		if r.err != nil {
@@ -132,7 +131,7 @@ func buildDirHash(files map[string]string) string {
 
 	h := sha256.New()
 	for _, p := range paths {
-		fmt.Fprintf(h, "%s:%s\n", p, files[p])
+		_, _ = fmt.Fprintf(h, "%s:%s\n", p, files[p])
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
 }

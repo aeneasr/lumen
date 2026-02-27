@@ -37,16 +37,6 @@ const MaxRetries = 3
 var DefaultHost = "localhost"
 `
 
-func TestGoASTChunker_Supports(t *testing.T) {
-	c := NewGoAST()
-	if !c.Supports("go") {
-		t.Fatal("expected go to be supported")
-	}
-	if c.Supports("python") {
-		t.Fatal("expected python to not be supported")
-	}
-}
-
 func TestGoASTChunker_ChunkFunctions(t *testing.T) {
 	c := NewGoAST()
 	chunks, err := c.Chunk("example.go", []byte(testSource))
@@ -57,9 +47,6 @@ func TestGoASTChunker_ChunkFunctions(t *testing.T) {
 	found := findChunk(chunks, "function", "Hello")
 	if found == nil {
 		t.Fatal("expected to find function Hello")
-	}
-	if found.Language != "go" {
-		t.Fatalf("expected language=go, got %s", found.Language)
 	}
 	if found.Content == "" {
 		t.Fatal("expected non-empty content")
