@@ -236,6 +236,63 @@ func F%d() {}
 	}
 }
 
+func TestIndexer_EnsureFresh(t *testing.T) {
+	projectDir := t.TempDir()
+	writeGoFile(t, projectDir, "main.go", `package main
+
+func Hello() {}
+`)
+
+	emb := &mockEmbedder{dims: 4, model: "test-model"}
+	idx, err := NewIndexer(":memory:", emb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	// First call on empty index: should reindex.
+	reindexed, stats, err := idx.EnsureFresh(context.Background(), projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reindexed {
+		t.Fatal("expected reindexed=true on first call")
+	}
+	if stats.IndexedFiles == 0 {
+		t.Fatal("expected indexed files > 0")
+	}
+	callsAfterFirst := emb.callCount
+
+	// Second call with no changes: should not reindex.
+	reindexed, _, err = idx.EnsureFresh(context.Background(), projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reindexed {
+		t.Fatal("expected reindexed=false when index is fresh")
+	}
+	if emb.callCount != callsAfterFirst {
+		t.Fatal("expected no embed calls when index is fresh")
+	}
+
+	// Modify a file: should reindex.
+	writeGoFile(t, projectDir, "main.go", `package main
+
+func Hello() {}
+func World() {}
+`)
+	reindexed, stats, err = idx.EnsureFresh(context.Background(), projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reindexed {
+		t.Fatal("expected reindexed=true after file change")
+	}
+	if stats.IndexedFiles == 0 {
+		t.Fatal("expected indexed files > 0 after file change")
+	}
+}
+
 func writeGoFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	path := filepath.Join(dir, name)

@@ -1,3 +1,4 @@
+// Package index orchestrates chunking, embedding, and storage for code indexes.
 package index
 
 import (
@@ -60,9 +61,52 @@ func (idx *Indexer) Close() error {
 }
 
 // Index indexes the project at projectDir. If force is true, all files are
-// re-indexed regardless of whether they have changed. Returns statistics
-// about the indexing run.
+// re-indexed regardless of whether they have changed.
 func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool) (IndexStats, error) {
+	curTree, err := merkle.BuildTree(projectDir, nil)
+	if err != nil {
+		return IndexStats{}, fmt.Errorf("build merkle tree: %w", err)
+	}
+	// If not forcing, check root hash before doing any work.
+	if !force {
+		storedHash, err := idx.store.GetMeta("root_hash")
+		if err != nil && err != sql.ErrNoRows {
+			return IndexStats{}, fmt.Errorf("get root_hash: %w", err)
+		}
+		if storedHash == curTree.RootHash {
+			return IndexStats{}, nil
+		}
+	}
+	return idx.indexWithTree(ctx, projectDir, force, curTree)
+}
+
+// EnsureFresh checks if the index is stale and re-indexes if needed.
+// Returns whether a re-index occurred, the stats, and any error.
+func (idx *Indexer) EnsureFresh(ctx context.Context, projectDir string) (bool, IndexStats, error) {
+	curTree, err := merkle.BuildTree(projectDir, nil)
+	if err != nil {
+		return false, IndexStats{}, fmt.Errorf("build merkle tree: %w", err)
+	}
+
+	storedHash, err := idx.store.GetMeta("root_hash")
+	if err != nil && err != sql.ErrNoRows {
+		return false, IndexStats{}, fmt.Errorf("get root_hash: %w", err)
+	}
+	if storedHash == curTree.RootHash {
+		return false, IndexStats{}, nil
+	}
+
+	stats, err := idx.indexWithTree(ctx, projectDir, false, curTree)
+	if err != nil {
+		return false, stats, err
+	}
+	return true, stats, nil
+}
+
+// indexWithTree is the internal implementation of Index that accepts a pre-built
+// merkle tree, so callers that already have one (e.g. EnsureFresh) do not need
+// to build it again.
+func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force bool, curTree *merkle.Tree) (IndexStats, error) {
 	var stats IndexStats
 
 	// Check if the embedding model has changed; if so, wipe everything and force.
@@ -77,56 +121,36 @@ func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool) (I
 		force = true
 	}
 
-	// Build the current merkle tree.
-	curTree, err := merkle.BuildTree(projectDir, nil)
-	if err != nil {
-		return stats, fmt.Errorf("build merkle tree: %w", err)
-	}
 	stats.TotalFiles = len(curTree.Files)
-
-	// If not forcing, check if the root hash matches (nothing changed).
-	if !force {
-		storedHash, err := idx.store.GetMeta("root_hash")
-		if err != nil && err != sql.ErrNoRows {
-			return stats, fmt.Errorf("get root_hash: %w", err)
-		}
-		if storedHash == curTree.RootHash {
-			// Everything is up to date.
-			return stats, nil
-		}
-	}
 
 	// Determine which files need processing.
 	var filesToIndex []string
 	var filesToRemove []string
 
 	if force {
-		// Index everything.
 		for path := range curTree.Files {
 			filesToIndex = append(filesToIndex, path)
 		}
 	} else {
-		// Diff against stored file hashes.
 		oldHashes, err := idx.store.GetFileHashes()
 		if err != nil {
 			return stats, fmt.Errorf("get file hashes: %w", err)
 		}
 		oldTree := &merkle.Tree{Files: oldHashes}
 		added, removed, modified := merkle.Diff(oldTree, curTree)
-		filesToIndex = append(added, modified...)
+		filesToIndex = append(filesToIndex, added...)
+		filesToIndex = append(filesToIndex, modified...)
 		filesToRemove = removed
 	}
 
 	stats.FilesChanged = len(filesToIndex) + len(filesToRemove)
 
-	// Remove chunks for deleted files.
 	for _, path := range filesToRemove {
 		if err := idx.store.DeleteFileChunks(path); err != nil {
 			return stats, fmt.Errorf("delete chunks for %s: %w", path, err)
 		}
 	}
 
-	// Process files, flushing embed+insert in batches to bound memory usage.
 	const chunkBatchSize = 256
 	var batch []chunker.Chunk
 	var totalChunks int
@@ -162,8 +186,6 @@ func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool) (I
 			return stats, fmt.Errorf("delete old chunks for %s: %w", relPath, err)
 		}
 
-		// Upsert the file record before appending chunks so the FK constraint
-		// is satisfied when the batch is flushed mid-loop.
 		if err := idx.store.UpsertFile(relPath, curTree.Files[relPath]); err != nil {
 			return stats, fmt.Errorf("upsert file %s: %w", relPath, err)
 		}
@@ -189,7 +211,6 @@ func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool) (I
 	stats.IndexedFiles = len(filesToIndex)
 	stats.ChunksCreated = totalChunks
 
-	// Update metadata.
 	if err := idx.store.SetMeta("root_hash", curTree.RootHash); err != nil {
 		return stats, fmt.Errorf("set root_hash: %w", err)
 	}
@@ -206,30 +227,6 @@ func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool) (I
 // Search performs a vector similarity search against the index.
 func (idx *Indexer) Search(ctx context.Context, projectDir string, queryVec []float32, limit int, kindFilter string) ([]store.SearchResult, error) {
 	return idx.store.Search(queryVec, limit, kindFilter)
-}
-
-// EnsureFresh checks if the index is stale and re-indexes if needed.
-// Returns whether a re-index occurred, the stats, and any error.
-func (idx *Indexer) EnsureFresh(ctx context.Context, projectDir string) (bool, IndexStats, error) {
-	curTree, err := merkle.BuildTree(projectDir, nil)
-	if err != nil {
-		return false, IndexStats{}, fmt.Errorf("build merkle tree: %w", err)
-	}
-
-	storedHash, err := idx.store.GetMeta("root_hash")
-	if err != nil && err != sql.ErrNoRows {
-		return false, IndexStats{}, fmt.Errorf("get root_hash: %w", err)
-	}
-
-	if storedHash == curTree.RootHash {
-		return false, IndexStats{}, nil
-	}
-
-	stats, err := idx.Index(ctx, projectDir, false)
-	if err != nil {
-		return false, stats, err
-	}
-	return true, stats, nil
 }
 
 // Status returns information about the current index state for a project.
