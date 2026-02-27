@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/foobar/agent-index-go/internal/embedder"
@@ -22,8 +23,7 @@ type SemanticSearchInput struct {
 	Query        string `json:"query" jsonschema:"Natural language search query"`
 	Path         string `json:"path" jsonschema:"Absolute path to the project root"`
 	Limit        int    `json:"limit,omitempty" jsonschema:"Max results to return, default 10"`
-	Kind         string `json:"kind,omitempty" jsonschema:"Filter by chunk kind: function method type interface const var"`
-	ForceReindex bool   `json:"force_reindex,omitempty" jsonschema:"Force full re-index before searching"`
+	ForceReindex bool `json:"force_reindex,omitempty" jsonschema:"Force full re-index before searching"`
 }
 
 // SearchResultItem represents a single search result returned to the caller.
@@ -66,6 +66,7 @@ type indexerCache struct {
 	mu       sync.RWMutex
 	cache    map[string]*index.Indexer
 	embedder embedder.Embedder
+	model    string
 }
 
 // getOrCreate returns an existing Indexer for the given project path, or
@@ -93,7 +94,7 @@ func (ic *indexerCache) getOrCreate(projectPath string) (*index.Indexer, error) 
 		return idx, nil
 	}
 
-	dbPath := dbPathForProject(projectPath)
+	dbPath := dbPathForProject(projectPath, ic.model)
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
@@ -155,7 +156,7 @@ func (ic *indexerCache) handleSemanticSearch(ctx context.Context, _ *mcp.CallToo
 	queryVec := vecs[0]
 
 	// Search the index.
-	results, err := idx.Search(ctx, input.Path, queryVec, input.Limit, input.Kind)
+	results, err := idx.Search(ctx, input.Path, queryVec, input.Limit)
 	if err != nil {
 		return nil, out, fmt.Errorf("search: %w", err)
 	}
@@ -207,10 +208,11 @@ func (ic *indexerCache) handleIndexStatus(_ context.Context, _ *mcp.CallToolRequ
 // --- Helpers ---
 
 // dbPathForProject returns the SQLite database path for a given project,
-// derived from a SHA-256 hash of the project path stored under the XDG
-// data directory.
-func dbPathForProject(projectPath string) string {
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(projectPath)))
+// derived from a SHA-256 hash of the project path and embedding model name,
+// stored under the XDG data directory. Including the model in the hash
+// ensures that switching models creates a fresh index automatically.
+func dbPathForProject(projectPath, model string) string {
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(projectPath+"\x00"+model)))
 	dataDir := xdgDataDir()
 	return filepath.Join(dataDir, "agent-index", hash[:16], "index.db")
 }
@@ -234,11 +236,22 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+// envOrDefaultInt returns the integer value of the environment variable named
+// by key, or fallback if the variable is not set, empty, or not a valid integer.
+func envOrDefaultInt(key string, fallback int) int {
+	if val := os.Getenv(key); val != "" {
+		if n, err := strconv.Atoi(val); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
 // --- main ---
 
 func main() {
 	model := envOrDefault("AGENT_INDEX_EMBED_MODEL", "nomic-embed-text")
-	dims := 1024
+	dims := envOrDefaultInt("AGENT_INDEX_EMBED_DIMS", 1024)
 	ollamaHost := envOrDefault("OLLAMA_HOST", "http://localhost:11434")
 
 	emb, err := embedder.NewOllama(model, dims, ollamaHost)
@@ -246,7 +259,7 @@ func main() {
 		log.Fatalf("create embedder: %v", err)
 	}
 
-	indexers := &indexerCache{embedder: emb}
+	indexers := &indexerCache{embedder: emb, model: model}
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "agent-index",

@@ -34,6 +34,16 @@ func (s *stubEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 func (s *stubEmbedder) Dimensions() int   { return 4 }
 func (s *stubEmbedder) ModelName() string { return "stub" }
 
+func TestEnvOrDefaultInt(t *testing.T) {
+	t.Setenv("TEST_DIMS", "384")
+	if got := envOrDefaultInt("TEST_DIMS", 1024); got != 384 {
+		t.Fatalf("got %d, want 384", got)
+	}
+	if got := envOrDefaultInt("TEST_DIMS_UNSET", 1024); got != 1024 {
+		t.Fatalf("got %d, want 1024", got)
+	}
+}
+
 func TestScoreIsNotDistance(t *testing.T) {
 	// Score should be in (0, 1] for reasonable matches (cosine similarity),
 	// not in [0, 2) like cosine distance.
