@@ -63,7 +63,7 @@ type IndexStatusOutput struct {
 // indexerCache manages one *index.Indexer per project path, creating them
 // lazily with a shared embedder.
 type indexerCache struct {
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	cache    map[string]*index.Indexer
 	embedder embedder.Embedder
 }
@@ -71,13 +71,24 @@ type indexerCache struct {
 // getOrCreate returns an existing Indexer for the given project path, or
 // creates a new one backed by a SQLite database in the XDG data directory.
 func (ic *indexerCache) getOrCreate(projectPath string) (*index.Indexer, error) {
+	// Fast path: read lock for already-cached indexers.
+	ic.mu.RLock()
+	if ic.cache != nil {
+		if idx, ok := ic.cache[projectPath]; ok {
+			ic.mu.RUnlock()
+			return idx, nil
+		}
+	}
+	ic.mu.RUnlock()
+
+	// Slow path: acquire write lock to create.
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 
 	if ic.cache == nil {
 		ic.cache = make(map[string]*index.Indexer)
 	}
-
+	// Double-check: another goroutine may have created it while we waited.
 	if idx, ok := ic.cache[projectPath]; ok {
 		return idx, nil
 	}
