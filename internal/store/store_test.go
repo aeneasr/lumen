@@ -72,7 +72,7 @@ func TestStore_UpsertAndSearchVectors(t *testing.T) {
 	}
 
 	query := []float32{0.1, 0.2, 0.3, 0.4}
-	results, err := s.Search(query, 2, "")
+	results, err := s.Search(query, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,41 +81,6 @@ func TestStore_UpsertAndSearchVectors(t *testing.T) {
 	}
 	if results[0].Symbol != "Hello" {
 		t.Fatalf("expected Hello as closest, got %s", results[0].Symbol)
-	}
-}
-
-func TestStore_SearchWithKindFilter(t *testing.T) {
-	s, err := New(":memory:", 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-
-	if err := s.UpsertFile("main.go", "abc123"); err != nil {
-		t.Fatal(err)
-	}
-
-	chunks := []chunker.Chunk{
-		{ID: "c1", FilePath: "main.go", Symbol: "Hello", Kind: "function", StartLine: 1, EndLine: 5},
-		{ID: "c2", FilePath: "main.go", Symbol: "Server", Kind: "type", StartLine: 6, EndLine: 10},
-	}
-	vectors := [][]float32{
-		{0.1, 0.2, 0.3, 0.4},
-		{0.1, 0.2, 0.3, 0.4},
-	}
-	if err := s.InsertChunks(chunks, vectors); err != nil {
-		t.Fatal(err)
-	}
-
-	results, err := s.Search([]float32{0.1, 0.2, 0.3, 0.4}, 10, "type")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result with kind=type, got %d", len(results))
-	}
-	if results[0].Kind != "type" {
-		t.Fatalf("expected kind=type, got %s", results[0].Kind)
 	}
 }
 
@@ -141,7 +106,7 @@ func TestStore_DeleteFileChunks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := s.Search([]float32{0.1, 0.2, 0.3, 0.4}, 10, "")
+	results, err := s.Search([]float32{0.1, 0.2, 0.3, 0.4}, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,13 +201,13 @@ func TestStore_ChunkIndexesExist(t *testing.T) {
 	var count int
 	err = s.db.QueryRow(
 		`SELECT count(*) FROM sqlite_master
-		 WHERE type='index' AND name IN ('idx_chunks_file_path','idx_chunks_kind')`,
+		 WHERE type='index' AND name = 'idx_chunks_file_path'`,
 	).Scan(&count)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 {
-		t.Fatalf("expected 2 indexes, got %d", count)
+	if count != 1 {
+		t.Fatalf("expected 1 index, got %d", count)
 	}
 }
 
@@ -251,10 +216,10 @@ func TestStore_GetMetaBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
-	s.SetMeta("key1", "val1")
-	s.SetMeta("key2", "val2")
+	_ = s.SetMeta("key1", "val1")
+	_ = s.SetMeta("key2", "val2")
 
 	vals, err := s.GetMetaBatch([]string{"key1", "key2", "missing"})
 	if err != nil {

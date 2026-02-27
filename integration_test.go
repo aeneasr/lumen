@@ -83,7 +83,7 @@ func HandleAuth(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("embed query: %v", err)
 	}
 
-	results, err := idx.Search(ctx, projectDir, queryVecs[0], 5, "")
+	results, err := idx.Search(ctx, projectDir, queryVecs[0], 5)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}

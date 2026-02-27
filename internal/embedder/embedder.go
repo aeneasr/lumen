@@ -1,3 +1,4 @@
+// Package embedder defines the interface for generating embedding vectors from text.
 package embedder
 
 import "context"

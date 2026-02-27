@@ -92,7 +92,6 @@ func createSchema(db *sql.DB, dimensions int) error {
 			end_line   INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path)`,
-		`CREATE INDEX IF NOT EXISTS idx_chunks_kind ON chunks(kind)`,
 		fmt.Sprintf(
 			`CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 				id TEXT PRIMARY KEY,
@@ -250,20 +249,10 @@ func (s *Store) DeleteFileChunks(filePath string) error {
 }
 
 // Search performs a KNN vector search and returns the closest chunks.
-// If kindFilter is non-empty, results are filtered to only that kind.
-// The approach: query vec_chunks for KNN matches (over-fetching when kind
-// filter is applied), join to chunks, filter by kind, and limit.
-func (s *Store) Search(queryVec []float32, limit int, kindFilter string) ([]SearchResult, error) {
+func (s *Store) Search(queryVec []float32, limit int) ([]SearchResult, error) {
 	blob, err := sqlite_vec.SerializeFloat32(queryVec)
 	if err != nil {
 		return nil, fmt.Errorf("serialize query: %w", err)
-	}
-
-	// When filtering by kind, over-fetch from vec_chunks since the virtual
-	// table cannot filter by kind itself.
-	k := limit
-	if kindFilter != "" {
-		k = max(limit*3, 10)
 	}
 
 	query := `
@@ -273,25 +262,9 @@ func (s *Store) Search(queryVec []float32, limit int, kindFilter string) ([]Sear
 		WHERE v.embedding MATCH ?
 		AND v.k = ?
 		ORDER BY v.distance
+		LIMIT ?
 	`
-	args := []any{blob, k}
-
-	if kindFilter != "" {
-		// Wrap the vec query and filter by kind.
-		// Explicit ORDER BY is required here: SQL does not guarantee that the
-		// outer query preserves the ordering of the inner query.
-		query = fmt.Sprintf(`
-			SELECT file_path, symbol, kind, start_line, end_line, distance
-			FROM (%s) sub
-			WHERE kind = ?
-			ORDER BY distance ASC
-			LIMIT ?
-		`, query)
-		args = append(args, kindFilter, limit)
-	} else {
-		query += " LIMIT ?"
-		args = append(args, limit)
-	}
+	args := []any{blob, limit, limit}
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {

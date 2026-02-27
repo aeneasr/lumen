@@ -1,0 +1,42 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - bodyclose
+    - revive
+    - gocritic
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+      - name: unused-parameter
+        severity: warning
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+
+issues:
+  exclude-rules:
+    # init() is required for sqlite-vec auto-registration
+    - path: internal/store/store\.go
+      linters: [revive]
+      text: "avoid init"
+    # Intentional error ignores in status/metadata helpers
+    - source: ", _ ="
+      linters: [errcheck]
+    # Tests can ignore errors freely
+    - path: _test\.go
+      linters: [errcheck]

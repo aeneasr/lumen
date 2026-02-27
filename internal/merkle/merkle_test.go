@@ -40,11 +40,17 @@ func TestBuildTree_SingleFile(t *testing.T) {
 func TestBuildTree_SkipsGitAndVendor(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "main.go", "package main\n")
-	os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, dir, ".git/config", "git config")
-	os.MkdirAll(filepath.Join(dir, "vendor"), 0o755)
+	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, dir, "vendor/lib.go", "package lib\n")
-	os.MkdirAll(filepath.Join(dir, "testdata"), 0o755)
+	if err := os.MkdirAll(filepath.Join(dir, "testdata"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, dir, "testdata/fixture.go", "package testdata\n")
 
 	tree, err := BuildTree(dir, nil)
@@ -88,7 +94,7 @@ func TestDiff_DetectsAddedAndRemovedFiles(t *testing.T) {
 	writeFile(t, dir, "b.go", "package b\n")
 	old, _ := BuildTree(dir, nil)
 
-	os.Remove(filepath.Join(dir, "b.go"))
+	_ = os.Remove(filepath.Join(dir, "b.go"))
 	writeFile(t, dir, "c.go", "package c\n")
 	cur, _ := BuildTree(dir, nil)
 
@@ -146,7 +152,9 @@ func TestBuildTree_ParallelMatchesSerial(t *testing.T) {
 func writeFile(t *testing.T, dir, rel, content string) {
 	t.Helper()
 	abs := filepath.Join(dir, rel)
-	os.MkdirAll(filepath.Dir(abs), 0o755)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

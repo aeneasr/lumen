@@ -109,18 +109,6 @@ func (idx *Indexer) EnsureFresh(ctx context.Context, projectDir string) (bool, I
 func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force bool, curTree *merkle.Tree) (IndexStats, error) {
 	var stats IndexStats
 
-	// Check if the embedding model has changed; if so, wipe everything and force.
-	storedModel, err := idx.store.GetMeta("embedding_model")
-	if err != nil && err != sql.ErrNoRows {
-		return stats, fmt.Errorf("get embedding_model: %w", err)
-	}
-	if storedModel != "" && storedModel != idx.emb.ModelName() {
-		if err := idx.store.DeleteAll(); err != nil {
-			return stats, fmt.Errorf("delete all on model change: %w", err)
-		}
-		force = true
-	}
-
 	stats.TotalFiles = len(curTree.Files)
 
 	// Determine which files need processing.
@@ -228,8 +216,8 @@ func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force 
 }
 
 // Search performs a vector similarity search against the index.
-func (idx *Indexer) Search(ctx context.Context, projectDir string, queryVec []float32, limit int, kindFilter string) ([]store.SearchResult, error) {
-	return idx.store.Search(queryVec, limit, kindFilter)
+func (idx *Indexer) Search(ctx context.Context, projectDir string, queryVec []float32, limit int) ([]store.SearchResult, error) {
+	return idx.store.Search(queryVec, limit)
 }
 
 // Status returns information about the current index state for a project.
