@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 type mockOllamaResponse struct {
@@ -25,7 +26,7 @@ func TestOllamaEmbedder_Embed(t *testing.T) {
 				{0.5, 0.6, 0.7, 0.8},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -65,7 +66,7 @@ func TestOllamaEmbedder_Batching(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		input := req["input"].([]any)
 
 		embeddings := make([][]float32, len(input))
@@ -73,7 +74,7 @@ func TestOllamaEmbedder_Batching(t *testing.T) {
 			embeddings[i] = []float32{0.1, 0.2, 0.3, 0.4}
 		}
 		resp := mockOllamaResponse{Model: "test", Embeddings: embeddings}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -96,7 +97,7 @@ func TestOllamaEmbedder_Batching(t *testing.T) {
 }
 
 func TestOllamaEmbedder_ErrorHandling(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -105,5 +106,31 @@ func TestOllamaEmbedder_ErrorHandling(t *testing.T) {
 	_, err := e.Embed(context.Background(), []string{"hello"})
 	if err == nil {
 		t.Fatal("expected error for 500 response")
+	}
+}
+
+func TestOllama_Embed_ContextCancelledStopsRetry(t *testing.T) {
+	// Server always returns 500 to force retry attempts.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	emb, _ := NewOllama("test", 4, srv.URL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before any request
+
+	start := time.Now()
+	_, err := emb.Embed(ctx, []string{"hello"})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	// With context-aware backoff, should return almost immediately.
+	// The old time.Sleep ignores context — this test catches the regression.
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("expected fast failure on pre-cancelled context, took %v", elapsed)
 	}
 }

@@ -1,11 +1,13 @@
 module github.com/foobar/agent-index-go
 
-go 1.25.0
+go 1.26
 
 require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/mattn/go-sqlite3 v1.14.34
 )
+
+require github.com/sethvargo/go-retry v0.3.0 // indirect
 
 require (
 	github.com/google/jsonschema-go v0.4.2 // indirect
