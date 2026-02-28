@@ -15,6 +15,8 @@
 package chunker
 
 import (
+	"github.com/aeneasr/agent-index/internal/config"
+
 	sitter_c   "github.com/smacker/go-tree-sitter/c"
 	sitter_cpp "github.com/smacker/go-tree-sitter/cpp"
 	sitter_java "github.com/smacker/go-tree-sitter/java"
@@ -96,7 +98,6 @@ func DefaultLanguages() map[string]Chunker {
 			{Pattern: `(struct_item name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(enum_item name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(trait_item name: (type_identifier) @name) @decl`, Kind: "interface"},
-			{Pattern: `(impl_item type: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(const_item name: (identifier) @name) @decl`, Kind: "const"},
 		},
 	})
@@ -147,7 +148,6 @@ func DefaultLanguages() map[string]Chunker {
 		Language: sitter_php.GetLanguage(),
 		Queries: []QueryDef{
 			{Pattern: `(function_definition name: (name) @name) @decl`, Kind: "function"},
-			{Pattern: `(class_declaration name: (name) @name) @decl`, Kind: "type"},
 			{Pattern: `(interface_declaration name: (name) @name) @decl`, Kind: "interface"},
 			{Pattern: `(trait_declaration name: (name) @name) @decl`, Kind: "type"},
 			{Pattern: `(method_declaration name: (name) @name) @decl`, Kind: "method"},
@@ -158,7 +158,8 @@ func DefaultLanguages() map[string]Chunker {
 
 	md := NewMarkdownChunker()
 
-	data := NewDataChunker()
+	maxChunkTokens := config.EnvOrDefaultInt("AGENT_INDEX_MAX_CHUNK_TOKENS", 2048)
+	structured := NewStructuredChunker(maxChunkTokens)
 
 	return map[string]Chunker{
 		".go":   goChunker,
@@ -180,8 +181,8 @@ func DefaultLanguages() map[string]Chunker {
 		".php":  php,
 		".md":   md,
 		".mdx":  md,
-		".yaml": data,
-		".yml":  data,
-		".json": data,
+		".yaml": structured,
+		".yml":  structured,
+		".json": structured,
 	}
 }
