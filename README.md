@@ -1,4 +1,4 @@
-# agent-index-go
+# agent-index
 
 A fully local semantic code search engine, exposed as an [MCP](https://modelcontextprotocol.io/) server. Think of it as a self-hosted alternative to cloud-based code vector databases — but everything runs on your machine, embeddings included.
 
