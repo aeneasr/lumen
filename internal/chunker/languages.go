@@ -1,10 +1,25 @@
+// Copyright 2026 Aeneas Rekkas
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package chunker
 
 import (
-	sitter_c    "github.com/smacker/go-tree-sitter/c"
-	sitter_cpp  "github.com/smacker/go-tree-sitter/cpp"
+	sitter_c   "github.com/smacker/go-tree-sitter/c"
+	sitter_cpp "github.com/smacker/go-tree-sitter/cpp"
 	sitter_java "github.com/smacker/go-tree-sitter/java"
 	sitter_js   "github.com/smacker/go-tree-sitter/javascript"
+	sitter_php  "github.com/smacker/go-tree-sitter/php"
 	sitter_py   "github.com/smacker/go-tree-sitter/python"
 	sitter_rb   "github.com/smacker/go-tree-sitter/ruby"
 	sitter_rs   "github.com/smacker/go-tree-sitter/rust"
@@ -23,6 +38,7 @@ var supportedExtensions = []string{
 	".java",
 	".c", ".h",
 	".cpp", ".cc", ".cxx", ".hpp",
+	".php",
 }
 
 // SupportedExtensions returns the file extensions indexed by DefaultLanguages.
@@ -125,6 +141,17 @@ func DefaultLanguages() map[string]Chunker {
 		},
 	})
 
+	php := mustTreeSitterChunker(LanguageDef{
+		Language: sitter_php.GetLanguage(),
+		Queries: []QueryDef{
+			{Pattern: `(function_definition name: (name) @name) @decl`, Kind: "function"},
+			{Pattern: `(class_declaration name: (name) @name) @decl`, Kind: "type"},
+			{Pattern: `(interface_declaration name: (name) @name) @decl`, Kind: "interface"},
+			{Pattern: `(trait_declaration name: (name) @name) @decl`, Kind: "type"},
+			{Pattern: `(method_declaration name: (name) @name) @decl`, Kind: "method"},
+		},
+	})
+
 	goChunker := NewGoAST()
 
 	return map[string]Chunker{
@@ -144,5 +171,6 @@ func DefaultLanguages() map[string]Chunker {
 		".cc":   cpp,
 		".cxx":  cpp,
 		".hpp":  cpp,
+		".php":  php,
 	}
 }
