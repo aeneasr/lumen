@@ -1,3 +1,17 @@
+// Copyright 2026 Aeneas Rekkas
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package store manages SQLite storage for code chunks and their embedding vectors.
 package store
 
@@ -92,17 +106,87 @@ func createSchema(db *sql.DB, dimensions int) error {
 			end_line   INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path)`,
-		fmt.Sprintf(
-			`CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
-				id TEXT PRIMARY KEY,
-				embedding float[%d] distance_metric=cosine
-			)`, dimensions),
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
 			return fmt.Errorf("exec %q: %w", s, err)
 		}
 	}
+
+	// Handle vec_chunks dimension mismatch: if the table exists with
+	// different dimensions, drop it and all associated data so it gets
+	// recreated with the correct size.
+	if err := ensureVecDimensions(db, dimensions); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ensureVecDimensions creates the vec_chunks virtual table, or recreates it
+// if the existing table has a different number of dimensions.
+func ensureVecDimensions(db *sql.DB, dimensions int) error {
+	createVec := fmt.Sprintf(
+		`CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+			id TEXT PRIMARY KEY,
+			embedding float[%d] distance_metric=cosine
+		)`, dimensions)
+
+	// Try inserting a zero vector to detect dimension mismatch.
+	// If vec_chunks doesn't exist yet, create it and return.
+	var tableExists bool
+	err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='vec_chunks'").Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("check vec_chunks existence: %w", err)
+	}
+
+	if !tableExists {
+		if _, err := db.Exec(createVec); err != nil {
+			return fmt.Errorf("create vec_chunks: %w", err)
+		}
+		if _, err := db.Exec(
+			`INSERT INTO project_meta (key, value) VALUES ('vec_dimensions', ?)
+			 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+			fmt.Sprintf("%d", dimensions),
+		); err != nil {
+			return fmt.Errorf("store vec_dimensions: %w", err)
+		}
+		return nil
+	}
+
+	// Table exists — check stored dimensions via a metadata key we set.
+	var storedDims int
+	err = db.QueryRow("SELECT value FROM project_meta WHERE key = 'vec_dimensions'").Scan(&storedDims)
+	if err == nil && storedDims == dimensions {
+		return nil // dimensions match
+	}
+
+	// Mismatch or no record — drop and recreate everything.
+	stmts := []string{
+		"DROP TABLE IF EXISTS vec_chunks",
+		"DELETE FROM chunks",
+		"DELETE FROM files",
+		"DELETE FROM project_meta",
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			return fmt.Errorf("reset for dimension change %q: %w", s, err)
+		}
+	}
+
+	if _, err := db.Exec(createVec); err != nil {
+		return fmt.Errorf("recreate vec_chunks: %w", err)
+	}
+
+	// Store the dimensions so we can detect mismatches next time.
+	if _, err := db.Exec(
+		`INSERT INTO project_meta (key, value) VALUES ('vec_dimensions', ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		fmt.Sprintf("%d", dimensions),
+	); err != nil {
+		return fmt.Errorf("store vec_dimensions: %w", err)
+	}
+
 	return nil
 }
 
@@ -249,22 +333,39 @@ func (s *Store) DeleteFileChunks(filePath string) error {
 }
 
 // Search performs a KNN vector search and returns the closest chunks.
-func (s *Store) Search(queryVec []float32, limit int) ([]SearchResult, error) {
+// If maxDistance > 0, results with distance >= maxDistance are excluded.
+func (s *Store) Search(queryVec []float32, limit int, maxDistance float64) ([]SearchResult, error) {
 	blob, err := sqlite_vec.SerializeFloat32(queryVec)
 	if err != nil {
 		return nil, fmt.Errorf("serialize query: %w", err)
 	}
 
-	query := `
-		SELECT c.file_path, c.symbol, c.kind, c.start_line, c.end_line, v.distance
-		FROM vec_chunks v
-		JOIN chunks c ON v.id = c.id
-		WHERE v.embedding MATCH ?
-		AND v.k = ?
-		ORDER BY v.distance
-		LIMIT ?
-	`
-	args := []any{blob, limit, limit}
+	var query string
+	var args []any
+	if maxDistance > 0 {
+		query = `
+			SELECT c.file_path, c.symbol, c.kind, c.start_line, c.end_line, v.distance
+			FROM vec_chunks v
+			JOIN chunks c ON v.id = c.id
+			WHERE v.embedding MATCH ?
+			AND v.k = ?
+			AND v.distance < ?
+			ORDER BY v.distance
+			LIMIT ?
+		`
+		args = []any{blob, limit, maxDistance, limit}
+	} else {
+		query = `
+			SELECT c.file_path, c.symbol, c.kind, c.start_line, c.end_line, v.distance
+			FROM vec_chunks v
+			JOIN chunks c ON v.id = c.id
+			WHERE v.embedding MATCH ?
+			AND v.k = ?
+			ORDER BY v.distance
+			LIMIT ?
+		`
+		args = []any{blob, limit, limit}
+	}
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {

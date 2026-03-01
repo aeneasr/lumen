@@ -1,6 +1,21 @@
+// Copyright 2026 Aeneas Rekkas
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package store
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/aeneasr/agent-index/internal/chunker"
@@ -72,7 +87,7 @@ func TestStore_UpsertAndSearchVectors(t *testing.T) {
 	}
 
 	query := []float32{0.1, 0.2, 0.3, 0.4}
-	results, err := s.Search(query, 2)
+	results, err := s.Search(query, 2, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +121,7 @@ func TestStore_DeleteFileChunks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := s.Search([]float32{0.1, 0.2, 0.3, 0.4}, 10)
+	results, err := s.Search([]float32{0.1, 0.2, 0.3, 0.4}, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,5 +248,65 @@ func TestStore_GetMetaBatch(t *testing.T) {
 	}
 	if _, ok := vals["missing"]; ok {
 		t.Fatal("expected missing key to be absent")
+	}
+}
+
+func TestStore_DimensionMismatchRecreatesTable(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+
+	// Create store with 4 dimensions and insert data.
+	s1, err := New(dbPath, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.UpsertFile("main.go", "abc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.InsertChunks(
+		[]chunker.Chunk{{ID: "c1", FilePath: "main.go", Symbol: "Foo", Kind: "function", StartLine: 1, EndLine: 5}},
+		[][]float32{{0.1, 0.2, 0.3, 0.4}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopen with different dimensions — should reset data.
+	s2, err := New(dbPath, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s2.Close() }()
+
+	// Old data should be gone.
+	stats, err := s2.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.TotalFiles != 0 {
+		t.Fatalf("expected 0 files after dimension change, got %d", stats.TotalFiles)
+	}
+	if stats.TotalChunks != 0 {
+		t.Fatalf("expected 0 chunks after dimension change, got %d", stats.TotalChunks)
+	}
+
+	// Should be able to insert with new dimensions.
+	if err := s2.UpsertFile("main.go", "def"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.InsertChunks(
+		[]chunker.Chunk{{ID: "c2", FilePath: "main.go", Symbol: "Bar", Kind: "function", StartLine: 1, EndLine: 5}},
+		[][]float32{{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8}},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := s2.Search([]float32{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8}, 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Symbol != "Bar" {
+		t.Fatalf("expected 1 result with symbol Bar, got %v", results)
 	}
 }
