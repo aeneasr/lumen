@@ -26,7 +26,6 @@ import (
 	"github.com/sethvargo/go-retry"
 )
 
-
 // Ollama implements the Embedder interface using a local Ollama server.
 type Ollama struct {
 	model         string

@@ -30,7 +30,11 @@ func TestHybridCTE_VecAndFTS5InCTE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("db.Close: %v", err)
+		}
+	}()
 
 	// Create a minimal schema: regular chunks table + vec0 + FTS5.
 	stmts := []string{
@@ -135,7 +139,11 @@ func TestHybridCTE_VecAndFTS5InCTE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hybrid CTE query failed: %v", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			t.Errorf("rows.Close: %v", err)
+		}
+	}()
 
 	type result struct {
 		id, symbol string

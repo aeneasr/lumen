@@ -1,12 +1,21 @@
 # MCP Code Index Server — Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to
+> implement this plan task-by-task.
 
-**Goal:** Build a Go MCP server that provides semantic code search for Claude Code by indexing Go source files via AST chunking, Ollama embeddings, and SQLite vector storage with Merkle tree change detection.
+**Goal:** Build a Go MCP server that provides semantic code search for Claude
+Code by indexing Go source files via AST chunking, Ollama embeddings, and SQLite
+vector storage with Merkle tree change detection.
 
-**Architecture:** Monolithic Go binary with internal packages (`chunker`, `embedder`, `store`, `merkle`, `index`). Runs over stdio as an MCP server using the official `modelcontextprotocol/go-sdk`. SQLite + sqlite-vec for vector storage via `mattn/go-sqlite3` (CGO). Ollama for embeddings via `ollama/ollama/api`.
+**Architecture:** Monolithic Go binary with internal packages (`chunker`,
+`embedder`, `store`, `merkle`, `index`). Runs over stdio as an MCP server using
+the official `modelcontextprotocol/go-sdk`. SQLite + sqlite-vec for vector
+storage via `mattn/go-sqlite3` (CGO). Ollama for embeddings via
+`ollama/ollama/api`.
 
-**Tech Stack:** Go 1.22+, `modelcontextprotocol/go-sdk`, `mattn/go-sqlite3`, `asg017/sqlite-vec-go-bindings/cgo`, `ollama/ollama/api`, `go/ast`+`go/parser` stdlib
+**Tech Stack:** Go 1.22+, `modelcontextprotocol/go-sdk`, `mattn/go-sqlite3`,
+`asg017/sqlite-vec-go-bindings/cgo`, `ollama/ollama/api`, `go/ast`+`go/parser`
+stdlib
 
 **Design Doc:** `docs/plans/2026-02-27-mcp-code-index-design.md`
 
@@ -15,6 +24,7 @@
 ### Task 1: Project Scaffolding
 
 **Files:**
+
 - Create: `go.mod`
 - Create: `main.go`
 - Create: `internal/chunker/chunker.go`
@@ -136,8 +146,7 @@ go mod tidy
 
 **Step 5: Verify build**
 
-Run: `go build ./...`
-Expected: Clean build with no errors.
+Run: `go build ./...` Expected: Clean build with no errors.
 
 **Step 6: Commit**
 
@@ -151,6 +160,7 @@ git commit -m "scaffold: init project with module, deps, interface stubs"
 ### Task 2: Merkle Tree — Change Detection
 
 **Files:**
+
 - Create: `internal/merkle/merkle.go`
 - Create: `internal/merkle/merkle_test.go`
 
@@ -288,8 +298,8 @@ func writeFile(t *testing.T, dir, rel, content string) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/merkle/ -v`
-Expected: FAIL — `BuildTree` and `Diff` not defined.
+Run: `go test ./internal/merkle/ -v` Expected: FAIL — `BuildTree` and `Diff` not
+defined.
 
 **Step 3: Implement merkle package**
 
@@ -421,8 +431,7 @@ func Diff(old, cur *Tree) (added, removed, modified []string) {
 
 **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/merkle/ -v`
-Expected: All 6 tests PASS.
+Run: `go test ./internal/merkle/ -v` Expected: All 6 tests PASS.
 
 **Step 5: Commit**
 
@@ -436,6 +445,7 @@ git commit -m "feat: add merkle tree change detection for file hashing and diffi
 ### Task 3: Go AST Chunker
 
 **Files:**
+
 - Modify: `internal/chunker/chunker.go`
 - Create: `internal/chunker/goast.go`
 - Create: `internal/chunker/goast_test.go`
@@ -640,8 +650,8 @@ func contains(s, substr string) bool {
 
 **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/chunker/ -v`
-Expected: FAIL — `NewGoAST`, `Chunk` type not defined in this package.
+Run: `go test ./internal/chunker/ -v` Expected: FAIL — `NewGoAST`, `Chunk` type
+not defined in this package.
 
 **Step 3: Move Chunk type into chunker package and implement GoAST**
 
@@ -859,8 +869,7 @@ func makeChunk(filePath, symbol, kind string, startLine, endLine int, content st
 
 **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/chunker/ -v`
-Expected: All 8 tests PASS.
+Run: `go test ./internal/chunker/ -v` Expected: All 8 tests PASS.
 
 **Step 5: Commit**
 
@@ -874,6 +883,7 @@ git commit -m "feat: add go/ast chunker for function/method/type/interface/const
 ### Task 4: SQLite + sqlite-vec Store
 
 **Files:**
+
 - Create: `internal/store/store.go`
 - Create: `internal/store/store_test.go`
 
@@ -1086,8 +1096,8 @@ func TestStore_Stats(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `CGO_ENABLED=1 go test ./internal/store/ -v`
-Expected: FAIL — `New`, `Store` type not defined.
+Run: `CGO_ENABLED=1 go test ./internal/store/ -v` Expected: FAIL — `New`,
+`Store` type not defined.
 
 **Step 3: Implement store package**
 
@@ -1394,10 +1404,12 @@ func (s *Store) DeleteAll() error {
 
 **Step 4: Run test to verify it passes**
 
-Run: `CGO_ENABLED=1 go test ./internal/store/ -v`
-Expected: All 7 tests PASS.
+Run: `CGO_ENABLED=1 go test ./internal/store/ -v` Expected: All 7 tests PASS.
 
-**Note:** The `kind` filter query with sqlite-vec JOIN may require adjustment. The `k = ?` parameter controls KNN count inside vec0, and the kind filter happens in the JOIN. If results are too few due to pre-filtering, we over-fetch by 3x then limit. This may need tuning — the test will validate correctness.
+**Note:** The `kind` filter query with sqlite-vec JOIN may require adjustment.
+The `k = ?` parameter controls KNN count inside vec0, and the kind filter
+happens in the JOIN. If results are too few due to pre-filtering, we over-fetch
+by 3x then limit. This may need tuning — the test will validate correctness.
 
 **Step 5: Commit**
 
@@ -1411,6 +1423,7 @@ git commit -m "feat: add sqlite + sqlite-vec store with vector search and batch 
 ### Task 5: Ollama Embedder
 
 **Files:**
+
 - Modify: `internal/embedder/embedder.go`
 - Create: `internal/embedder/ollama.go`
 - Create: `internal/embedder/ollama_test.go`
@@ -1535,8 +1548,7 @@ func TestOllamaEmbedder_ErrorHandling(t *testing.T) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/embedder/ -v`
-Expected: FAIL — `NewOllama` not defined.
+Run: `go test ./internal/embedder/ -v` Expected: FAIL — `NewOllama` not defined.
 
 **Step 3: Implement Ollama embedder**
 
@@ -1676,8 +1688,7 @@ func (o *Ollama) embedBatch(ctx context.Context, texts []string) ([][]float32, e
 
 **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/embedder/ -v`
-Expected: All 5 tests PASS.
+Run: `go test ./internal/embedder/ -v` Expected: All 5 tests PASS.
 
 **Step 5: Commit**
 
@@ -1691,6 +1702,7 @@ git commit -m "feat: add ollama embedder with batching and retry"
 ### Task 6: Index Orchestrator
 
 **Files:**
+
 - Create: `internal/index/index.go`
 - Create: `internal/index/index_test.go`
 
@@ -1907,8 +1919,8 @@ func writeGoFile(t *testing.T, dir, name, content string) {
 
 **Step 2: Run test to verify it fails**
 
-Run: `CGO_ENABLED=1 go test ./internal/index/ -v`
-Expected: FAIL — `NewIndexer` not defined.
+Run: `CGO_ENABLED=1 go test ./internal/index/ -v` Expected: FAIL — `NewIndexer`
+not defined.
 
 **Step 3: Implement index orchestrator**
 
@@ -2137,8 +2149,7 @@ func (idx *Indexer) Status(projectDir string) (*StatusInfo, error) {
 
 **Step 4: Run test to verify it passes**
 
-Run: `CGO_ENABLED=1 go test ./internal/index/ -v`
-Expected: All 5 tests PASS.
+Run: `CGO_ENABLED=1 go test ./internal/index/ -v` Expected: All 5 tests PASS.
 
 **Step 5: Commit**
 
@@ -2152,6 +2163,7 @@ git commit -m "feat: add index orchestrator with merkle-based incremental indexi
 ### Task 7: MCP Server Wiring
 
 **Files:**
+
 - Modify: `main.go`
 
 **Step 1: Implement main.go with MCP server**
@@ -2391,13 +2403,13 @@ func envOrDefault(key, fallback string) string {
 
 **Step 2: Verify build**
 
-Run: `CGO_ENABLED=1 go build -o agent-index .`
-Expected: Clean build, produces `agent-index` binary.
+Run: `CGO_ENABLED=1 go build -o agent-index .` Expected: Clean build, produces
+`agent-index` binary.
 
 **Step 3: Run all tests**
 
-Run: `CGO_ENABLED=1 go test ./... -v`
-Expected: All tests across all packages PASS.
+Run: `CGO_ENABLED=1 go test ./... -v` Expected: All tests across all packages
+PASS.
 
 **Step 4: Commit**
 
@@ -2411,7 +2423,9 @@ git commit -m "feat: wire MCP server with semantic_search and index_status tools
 ### Task 8: Remove Unused Types File + Clean Up
 
 **Files:**
-- Delete: `internal/types.go` (if it was created — types now live in their respective packages)
+
+- Delete: `internal/types.go` (if it was created — types now live in their
+  respective packages)
 - Verify: `go mod tidy`
 
 **Step 1: Clean up**
@@ -2423,13 +2437,13 @@ go mod tidy
 
 **Step 2: Run all tests**
 
-Run: `CGO_ENABLED=1 go test ./... -v`
-Expected: All tests PASS.
+Run: `CGO_ENABLED=1 go test ./... -v` Expected: All tests PASS.
 
 **Step 3: Verify binary runs**
 
-Run: `./agent-index 2>&1 | head -1` (it will wait for MCP stdio, so just verify it starts)
-Expected: No crash on startup. The binary will block waiting for MCP client input over stdin.
+Run: `./agent-index 2>&1 | head -1` (it will wait for MCP stdio, so just verify
+it starts) Expected: No crash on startup. The binary will block waiting for MCP
+client input over stdin.
 
 **Step 4: Commit**
 
@@ -2443,6 +2457,7 @@ git commit -m "chore: clean up unused types, tidy deps"
 ### Task 9: Integration Test
 
 **Files:**
+
 - Create: `integration_test.go`
 
 **Step 1: Write integration test**
@@ -2609,13 +2624,14 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 **Step 2: Run unit tests (no integration)**
 
-Run: `CGO_ENABLED=1 go test ./... -v`
-Expected: All unit tests PASS. Integration test is skipped (no `integration` build tag).
+Run: `CGO_ENABLED=1 go test ./... -v` Expected: All unit tests PASS. Integration
+test is skipped (no `integration` build tag).
 
 **Step 3: Run integration test (if Ollama is available)**
 
-Run: `CGO_ENABLED=1 go test -tags integration -v -run TestIntegration`
-Expected: PASS if Ollama is running with `nomic-embed-text` pulled. FAIL with clear error if Ollama is not running.
+Run: `CGO_ENABLED=1 go test -tags integration -v -run TestIntegration` Expected:
+PASS if Ollama is running with `nomic-embed-text` pulled. FAIL with clear error
+if Ollama is not running.
 
 **Step 4: Commit**
 
@@ -2629,6 +2645,7 @@ git commit -m "test: add integration test for full index + search pipeline"
 ### Task 10: Add .gitignore and README
 
 **Files:**
+
 - Create: `.gitignore`
 
 **Step 1: Create .gitignore**
@@ -2658,17 +2675,18 @@ git commit -m "chore: add gitignore"
 
 ## Summary
 
-| Task | What | Depends On |
-|---|---|---|
-| 1 | Project scaffolding + deps | — |
-| 2 | Merkle tree change detection | 1 |
-| 3 | Go AST chunker | 1 |
-| 4 | SQLite + sqlite-vec store | 1 |
-| 5 | Ollama embedder | 1 |
-| 6 | Index orchestrator | 2, 3, 4, 5 |
-| 7 | MCP server wiring | 6 |
-| 8 | Clean up + verify | 7 |
-| 9 | Integration test | 8 |
-| 10 | .gitignore | 9 |
+| Task | What                         | Depends On |
+| ---- | ---------------------------- | ---------- |
+| 1    | Project scaffolding + deps   | —          |
+| 2    | Merkle tree change detection | 1          |
+| 3    | Go AST chunker               | 1          |
+| 4    | SQLite + sqlite-vec store    | 1          |
+| 5    | Ollama embedder              | 1          |
+| 6    | Index orchestrator           | 2, 3, 4, 5 |
+| 7    | MCP server wiring            | 6          |
+| 8    | Clean up + verify            | 7          |
+| 9    | Integration test             | 8          |
+| 10   | .gitignore                   | 9          |
 
-Tasks 2-5 are independent and can be parallelized. Task 6 requires all of 2-5. Tasks 7-10 are sequential.
+Tasks 2-5 are independent and can be parallelized. Task 6 requires all of 2-5.
+Tasks 7-10 are sequential.

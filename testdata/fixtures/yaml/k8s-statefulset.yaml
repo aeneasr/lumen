@@ -6,7 +6,7 @@ spec:
   selector:
     matchLabels:
       app: postgres
-  serviceName: "postgres"
+  serviceName: 'postgres'
   replicas: 1
   template:
     metadata:
@@ -15,33 +15,33 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       containers:
-      - name: postgres
-        image: postgres:14
-        ports:
-        - containerPort: 5432
-          name: postgres
-        env:
-        - name: POSTGRES_DB
-          value: mydb
-        - name: POSTGRES_USER
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secret
-              key: username
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secret
-              key: password
-        volumeMounts:
-        - name: postgres-storage
-          mountPath: /var/lib/postgresql/data
+        - name: postgres
+          image: postgres:14
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              value: mydb
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
   volumeClaimTemplates:
-  - metadata:
-      name: postgres-storage
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      storageClassName: "standard"
-      resources:
-        requests:
-          storage: 10Gi
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes: ['ReadWriteOnce']
+        storageClassName: 'standard'
+        resources:
+          requests:
+            storage: 10Gi

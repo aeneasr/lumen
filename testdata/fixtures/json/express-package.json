@@ -82,12 +82,7 @@
   "engines": {
     "node": ">= 18"
   },
-  "files": [
-    "LICENSE",
-    "Readme.md",
-    "index.js",
-    "lib/"
-  ],
+  "files": ["LICENSE", "Readme.md", "index.js", "lib/"],
   "scripts": {
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

@@ -10,13 +10,7 @@
     "type": "git",
     "url": "git+https://github.com/vitejs/vite.git"
   },
-  "keywords": [
-    "frontend",
-    "hmr",
-    "dev-server",
-    "build-tool",
-    "vite"
-  ],
+  "keywords": ["frontend", "hmr", "dev-server", "build-tool", "vite"],
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "postinstall": "simple-git-hooks",
@@ -76,18 +70,10 @@
     "pre-commit": "pnpm exec lint-staged --concurrent false"
   },
   "lint-staged": {
-    "*": [
-      "prettier --write --cache --ignore-unknown"
-    ],
-    "packages/*/{src,types}/**/*.ts": [
-      "eslint --cache --fix"
-    ],
-    "packages/**/*.d.ts": [
-      "eslint --cache --fix"
-    ],
-    "playground/**/__tests__/**/*.ts": [
-      "eslint --cache --fix"
-    ]
+    "*": ["prettier --write --cache --ignore-unknown"],
+    "packages/*/{src,types}/**/*.ts": ["eslint --cache --fix"],
+    "packages/**/*.d.ts": ["eslint --cache --fix"],
+    "playground/**/__tests__/**/*.ts": ["eslint --cache --fix"]
   },
   "packageManager": "pnpm@10.30.2",
   "stackblitz": {

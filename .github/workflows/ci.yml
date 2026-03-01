@@ -15,11 +15,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: '1.26'
           cache: true
 
       - name: Test
-        run: CGO_ENABLED=1 go test -tags=fts5 ./...
+        run: make test
 
       - name: Vet
         run: go vet -tags=fts5 ./...
@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: '1.26'
           cache: false
 
       - name: golangci-lint
@@ -54,7 +54,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: '1.26'
           cache: true
 
       - name: Wait for Ollama
@@ -65,11 +65,12 @@ jobs:
           done
 
       - name: Pull embedding model
-        run: 'curl -sf http://localhost:11434/api/pull -d ''{"name":"all-minilm"}'''
+        run:
+          'curl -sf http://localhost:11434/api/pull -d ''{"name":"all-minilm"}'''
 
       - name: E2E tests
-        run: CGO_ENABLED=1 go test -tags=fts5,e2e -timeout=5m -v -count=1 ./...
+        run: make e2e
         env:
           OLLAMA_HOST: http://localhost:11434
           AGENT_INDEX_EMBED_MODEL: all-minilm
-          AGENT_INDEX_EMBED_DIMS: "384"
+          AGENT_INDEX_EMBED_DIMS: '384'

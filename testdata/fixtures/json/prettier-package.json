@@ -35,12 +35,7 @@
   "engines": {
     "node": ">=20"
   },
-  "files": [
-    "index.js",
-    "standalone.js",
-    "src",
-    "bin"
-  ],
+  "files": ["index.js", "standalone.js", "src", "bin"],
   "dependencies": {
     "@angular/compiler": "21.1.1",
     "@babel/code-frame": "8.0.0-rc.1",
@@ -235,15 +230,9 @@
     "debug:inspect": "node --inspect-brk bin/prettier.js --ignore-path=.prettierignore"
   },
   "c8": {
-    "reporter": [
-      "lcov",
-      "text"
-    ],
+    "reporter": ["lcov", "text"],
     "all": true,
-    "include": [
-      "src/**",
-      "bin/**"
-    ],
+    "include": ["src/**", "bin/**"],
     "exclude": [
       "bin/prettier.js",
       "src/standalone.js",
@@ -256,11 +245,7 @@
       "src/**/**/*.d.ts"
     ]
   },
-  "browserslist": [
-    ">0.5%",
-    "not dead",
-    "not op_mini all"
-  ],
+  "browserslist": [">0.5%", "not dead", "not op_mini all"],
   "preferUnplugged": true,
   "packageManager": "yarn@4.12.0",
   "sideEffects": false

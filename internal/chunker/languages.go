@@ -15,16 +15,16 @@
 package chunker
 
 import (
-	sitter_c   "github.com/smacker/go-tree-sitter/c"
+	sitter_c "github.com/smacker/go-tree-sitter/c"
 	sitter_cpp "github.com/smacker/go-tree-sitter/cpp"
 	sitter_java "github.com/smacker/go-tree-sitter/java"
-	sitter_js   "github.com/smacker/go-tree-sitter/javascript"
-	sitter_php  "github.com/smacker/go-tree-sitter/php"
-	sitter_py   "github.com/smacker/go-tree-sitter/python"
-	sitter_rb   "github.com/smacker/go-tree-sitter/ruby"
-	sitter_rs   "github.com/smacker/go-tree-sitter/rust"
-	sitter_ts   "github.com/smacker/go-tree-sitter/typescript/typescript"
-	sitter_tsx  "github.com/smacker/go-tree-sitter/typescript/tsx"
+	sitter_js "github.com/smacker/go-tree-sitter/javascript"
+	sitter_php "github.com/smacker/go-tree-sitter/php"
+	sitter_py "github.com/smacker/go-tree-sitter/python"
+	sitter_rb "github.com/smacker/go-tree-sitter/ruby"
+	sitter_rs "github.com/smacker/go-tree-sitter/rust"
+	sitter_tsx "github.com/smacker/go-tree-sitter/typescript/tsx"
+	sitter_ts "github.com/smacker/go-tree-sitter/typescript/typescript"
 )
 
 // supportedExtensions is the canonical list of file extensions handled by DefaultLanguages.

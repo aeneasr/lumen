@@ -3,7 +3,7 @@ GO       := go
 GOTAGS   := fts5
 GOFLAGS  := -tags=$(GOTAGS)
 
-.PHONY: build test e2e lint vet tidy clean
+.PHONY: build test e2e lint vet tidy clean format
 
 build:
 	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -o $(BINARY) .
@@ -28,3 +28,7 @@ tidy:
 
 clean:
 	rm -f $(BINARY)
+
+format:
+	goimports -w .
+	npx --yes prettier --write "**/*.{json,md,mdx,yaml,yml}"

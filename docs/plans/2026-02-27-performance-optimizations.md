@@ -1,18 +1,26 @@
 # Performance Optimizations Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to
+> implement this plan task-by-task.
 
-**Goal:** Apply six targeted performance optimizations to the agent-index MCP server covering SQLite tuning, parallel file hashing, streaming chunk batches, concurrent embedding, fewer DB round trips in Status(), and a read-optimized indexer cache.
+**Goal:** Apply six targeted performance optimizations to the agent-index MCP
+server covering SQLite tuning, parallel file hashing, streaming chunk batches,
+concurrent embedding, fewer DB round trips in Status(), and a read-optimized
+indexer cache.
 
-**Architecture:** All changes are internal to each package's existing files. No new files are needed. Each task is independently testable and committable. The changes are additive/drop-in replacements — no public API surface changes.
+**Architecture:** All changes are internal to each package's existing files. No
+new files are needed. Each task is independently testable and committable. The
+changes are additive/drop-in replacements — no public API surface changes.
 
-**Tech Stack:** Go 1.25, SQLite (mattn/go-sqlite3 + sqlite-vec), stdlib `sync`, `sync/atomic`, `context`, `net/http`.
+**Tech Stack:** Go 1.25, SQLite (mattn/go-sqlite3 + sqlite-vec), stdlib `sync`,
+`sync/atomic`, `context`, `net/http`.
 
 ---
 
 ## Task 1: SQLite write-performance pragmas + chunk indexes
 
 **Files:**
+
 - Modify: `internal/store/store.go:50-58` (pragma list)
 - Modify: `internal/store/store.go:69-98` (createSchema stmts)
 - Test: `internal/store/store_test.go`
@@ -67,7 +75,8 @@ cd /Users/aeneasr/workspace/agentic/agent-index
 go test ./internal/store/... -run "TestStore_Pragmas|TestStore_ChunkIndexesExist" -v
 ```
 
-Expected: FAIL — `expected synchronous=NORMAL(1)` and `expected 2 indexes, got 0`.
+Expected: FAIL — `expected synchronous=NORMAL(1)` and
+`expected 2 indexes, got 0`.
 
 **Step 3: Implement — add pragmas and indexes in `internal/store/store.go`**
 
@@ -85,7 +94,8 @@ Replace the pragma list at lines 50-58:
 	}
 ```
 
-Add two index statements to the `stmts` slice inside `createSchema` (after the `chunks` table, before the `vec_chunks` virtual table):
+Add two index statements to the `stmts` slice inside `createSchema` (after the
+`chunks` table, before the `vec_chunks` virtual table):
 
 ```go
 		`CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path)`,
@@ -142,10 +152,13 @@ git commit -m "perf: add SQLite write pragmas and chunk column indexes"
 ## Task 2: Parallel file reads in merkle.BuildTree
 
 **Files:**
+
 - Modify: `internal/merkle/merkle.go`
 - Test: `internal/merkle/merkle_test.go`
 
-**Background:** `BuildTree` currently reads every file sequentially inside `filepath.WalkDir`. The fix is a two-phase approach: (1) walk to collect paths, (2) fan out to 8 goroutines that hash files concurrently, (3) merge results.
+**Background:** `BuildTree` currently reads every file sequentially inside
+`filepath.WalkDir`. The fix is a two-phase approach: (1) walk to collect paths,
+(2) fan out to 8 goroutines that hash files concurrently, (3) merge results.
 
 **Step 1: Write the failing test**
 
@@ -181,7 +194,8 @@ func TestBuildTree_ParallelMatchesSerial(t *testing.T) {
 }
 ```
 
-**Step 2: Run to verify test passes already (it should — this tests correctness, not parallelism)**
+**Step 2: Run to verify test passes already (it should — this tests correctness,
+not parallelism)**
 
 ```
 go test ./internal/merkle/... -run TestBuildTree_ParallelMatchesSerial -v
@@ -312,10 +326,13 @@ git commit -m "perf: parallelize file reads in merkle.BuildTree with worker pool
 ## Task 3: Stream chunk batches through embed+insert pipeline
 
 **Files:**
+
 - Modify: `internal/index/index.go:129-174`
 - Test: `internal/index/index_test.go`
 
-**Background:** Currently all chunks are accumulated in memory before a single `Embed` call. For large codebases this accumulates unboundedly. Fix: embed+insert in rolling batches of 256 chunks.
+**Background:** Currently all chunks are accumulated in memory before a single
+`Embed` call. For large codebases this accumulates unboundedly. Fix:
+embed+insert in rolling batches of 256 chunks.
 
 **Step 1: Write the failing test**
 
@@ -438,7 +455,8 @@ Replace the chunk-collection and embed section (lines 129-174) with:
 	stats.ChunksCreated = totalChunks
 ```
 
-Remove the old `var allChunks []chunker.Chunk` accumulation block and the standalone embed+insert block that followed it.
+Remove the old `var allChunks []chunker.Chunk` accumulation block and the
+standalone embed+insert block that followed it.
 
 **Step 4: Run tests**
 
@@ -461,14 +479,18 @@ git commit -m "perf: stream chunk embed+insert in batches of 256 to reduce peak 
 ## Task 4: Concurrent batch embedding + retry on 429 + pre-allocate slice
 
 **Files:**
+
 - Modify: `internal/embedder/ollama.go`
 - Test: `internal/embedder/ollama_test.go`
 
-**Background:** Batches are currently sent to Ollama serially. With a 4-concurrent-batches limit they can be pipelined. Also: HTTP 429 (rate limit) should be retried like 5xx. Also: `allVecs` slice should be pre-allocated.
+**Background:** Batches are currently sent to Ollama serially. With a
+4-concurrent-batches limit they can be pipelined. Also: HTTP 429 (rate limit)
+should be retried like 5xx. Also: `allVecs` slice should be pre-allocated.
 
 **Step 1: Read the existing embedder test**
 
-Read `internal/embedder/ollama_test.go` to understand the test helpers available.
+Read `internal/embedder/ollama_test.go` to understand the test helpers
+available.
 
 **Step 2: Write the failing tests**
 
@@ -548,11 +570,13 @@ go test ./internal/embedder/... -run "TestOllama_Embed_PreAllocated|TestOllama_E
 
 Expected: the 429 test may fail because 429 is currently not retried.
 
-**Step 4: Implement concurrent batches + retry 429 + pre-allocate in `internal/embedder/ollama.go`**
+**Step 4: Implement concurrent batches + retry 429 + pre-allocate in
+`internal/embedder/ollama.go`**
 
 Add `"sync"` to imports.
 
 Add constant:
+
 ```go
 const maxConcurrentBatches = 4
 ```
@@ -648,11 +672,14 @@ git commit -m "perf: concurrent batch embedding, retry on 429, pre-allocate resu
 ## Task 5: Combine Stats() into one query + batch metadata in Status()
 
 **Files:**
+
 - Modify: `internal/store/store.go:295-303` (Stats)
 - Modify: `internal/index/index.go:219-253` (Status)
 - Test: `internal/store/store_test.go`, `internal/index/index_test.go`
 
-**Background:** `Stats()` makes two separate queries; combine into one. `Status()` calls `GetMeta` twice separately; combine into one `GetMetaBatch` call.
+**Background:** `Stats()` makes two separate queries; combine into one.
+`Status()` calls `GetMeta` twice separately; combine into one `GetMetaBatch`
+call.
 
 **Step 1: Write the failing tests**
 
@@ -784,9 +811,12 @@ git commit -m "perf: combine Stats() into one query, add GetMetaBatch for Status
 ## Task 6: RWMutex for indexer cache
 
 **Files:**
+
 - Modify: `main.go:65-97`
 
-**Background:** All cache lookups (including read-only hits) take an exclusive write lock. Using `sync.RWMutex` with a double-checked lock pattern allows concurrent reads when a project is already cached.
+**Background:** All cache lookups (including read-only hits) take an exclusive
+write lock. Using `sync.RWMutex` with a double-checked lock pattern allows
+concurrent reads when a project is already cached.
 
 **Step 1: Write the test**
 
@@ -839,13 +869,15 @@ func TestIndexerCache_ConcurrentReads(t *testing.T) {
 }
 ```
 
-**Step 2: Run with race detector to verify race exists (optional, documentation only)**
+**Step 2: Run with race detector to verify race exists (optional, documentation
+only)**
 
 ```
 go test -race ./... -run TestIndexerCache_ConcurrentReads -v
 ```
 
-This may or may not catch a race before the fix since the existing `sync.Mutex` is correct — the RWMutex is a performance upgrade, not a bug fix.
+This may or may not catch a race before the fix since the existing `sync.Mutex`
+is correct — the RWMutex is a performance upgrade, not a bug fix.
 
 **Step 3: Implement RWMutex in `main.go`**
 

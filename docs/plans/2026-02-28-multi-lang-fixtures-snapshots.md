@@ -1,14 +1,25 @@
 # Multi-Language Fixtures & Snapshot Tests Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to
+> implement this plan task-by-task.
 
-**Goal:** Add PHP/YAML+JSON/Markdown chunkers, vendor real-world fixtures (30-50 files per language), write cupaloy snapshot E2E tests per language, and raise default result limits with score-based filtering.
+**Goal:** Add PHP/YAML+JSON/Markdown chunkers, vendor real-world fixtures (30-50
+files per language), write cupaloy snapshot E2E tests per language, and raise
+default result limits with score-based filtering.
 
-**Architecture:** New chunkers (PHP via tree-sitter, Markdown/YAML+JSON via plain-text scanning) are added to `internal/chunker/`. A shell script downloads real files from well-known open-source repos into `testdata/fixtures/<lang>/`. A new E2E test file `e2e_lang_test.go` uses `cupaloy` to snapshot-test 5–8 queries per language. Oversized chunks from new chunkers pass through the existing `split.go` pipeline unchanged.
+**Architecture:** New chunkers (PHP via tree-sitter, Markdown/YAML+JSON via
+plain-text scanning) are added to `internal/chunker/`. A shell script downloads
+real files from well-known open-source repos into `testdata/fixtures/<lang>/`. A
+new E2E test file `e2e_lang_test.go` uses `cupaloy` to snapshot-test 5–8 queries
+per language. Oversized chunks from new chunkers pass through the existing
+`split.go` pipeline unchanged.
 
-**Tech Stack:** Go 1.26, tree-sitter (PHP), `encoding/json` (JSON chunker), `github.com/bradleyjkemp/cupaloy/v2` (snapshots), existing `internal/index/split.go` for oversized-chunk splitting.
+**Tech Stack:** Go 1.26, tree-sitter (PHP), `encoding/json` (JSON chunker),
+`github.com/bradleyjkemp/cupaloy/v2` (snapshots), existing
+`internal/index/split.go` for oversized-chunk splitting.
 
-**GitHub repo:** `github.com/aeneasr/agent-index-go` — badge URL base: `https://github.com/aeneasr/agent-index-go/actions/workflows/ci.yml`
+**GitHub repo:** `github.com/aeneasr/agent-index-go` — badge URL base:
+`https://github.com/aeneasr/agent-index-go/actions/workflows/ci.yml`
 
 ---
 
@@ -17,17 +28,21 @@
 **Files:** `go.mod`, `go.sum`
 
 **Step 1:** Add dependency
+
 ```bash
 go get github.com/bradleyjkemp/cupaloy/v2
 ```
 
 **Step 2:** Verify it appears in go.mod
+
 ```bash
 grep cupaloy go.mod
 ```
+
 Expected: `github.com/bradleyjkemp/cupaloy/v2 v2.8.0` (or later)
 
 **Step 3:** Commit
+
 ```bash
 git add go.mod go.sum
 git commit -m "chore: add cupaloy snapshot testing dependency"
@@ -38,14 +53,18 @@ git commit -m "chore: add cupaloy snapshot testing dependency"
 ## Task 2: PHP chunker
 
 **Files:**
+
 - Modify: `internal/chunker/languages.go`
 
 **Step 1:** Add PHP import at top of `internal/chunker/languages.go`:
+
 ```go
 sitter_php "github.com/smacker/go-tree-sitter/php"
 ```
 
-**Step 2:** Add PHP chunker definition inside `DefaultLanguages()`, before the `goChunker := NewGoAST()` line:
+**Step 2:** Add PHP chunker definition inside `DefaultLanguages()`, before the
+`goChunker := NewGoAST()` line:
+
 ```go
 php := mustTreeSitterChunker(LanguageDef{
     Language: sitter_php.GetLanguage(),
@@ -60,6 +79,7 @@ php := mustTreeSitterChunker(LanguageDef{
 ```
 
 **Step 3:** Add to the return map and to `supportedExtensions`:
+
 ```go
 // In supportedExtensions slice:
 ".php",
@@ -69,12 +89,16 @@ php := mustTreeSitterChunker(LanguageDef{
 ```
 
 **Step 4:** Build to verify queries compile:
+
 ```bash
 CGO_ENABLED=1 go build ./...
 ```
-Expected: no errors. If a query pattern errors, check tree-sitter PHP node type names with `sitter_php.GetLanguage()`.
+
+Expected: no errors. If a query pattern errors, check tree-sitter PHP node type
+names with `sitter_php.GetLanguage()`.
 
 **Step 5:** Commit
+
 ```bash
 git add internal/chunker/languages.go
 git commit -m "feat: add PHP tree-sitter chunker"
@@ -85,10 +109,12 @@ git commit -m "feat: add PHP tree-sitter chunker"
 ## Task 3: Markdown chunker
 
 **Files:**
+
 - Create: `internal/chunker/markdown.go`
 - Create: `internal/chunker/markdown_test.go`
 
 **Step 1:** Create `internal/chunker/markdown.go`:
+
 ```go
 // Copyright 2026 Aeneas Rekkas
 //
@@ -163,6 +189,7 @@ func (c *MarkdownChunker) Chunk(filePath string, content []byte) ([]Chunk, error
 ```
 
 **Step 2:** Create `internal/chunker/markdown_test.go`:
+
 ```go
 // Copyright 2026 Aeneas Rekkas
 // ...
@@ -216,12 +243,16 @@ func TestMarkdownChunker_EmptyFile(t *testing.T) {
 ```
 
 **Step 3:** Run tests:
+
 ```bash
 CGO_ENABLED=1 go test ./internal/chunker/... -run TestMarkdownChunker -v
 ```
+
 Expected: PASS
 
-**Step 4:** Register in `languages.go` — add to `SupportedExtensions` and `DefaultLanguages()`:
+**Step 4:** Register in `languages.go` — add to `SupportedExtensions` and
+`DefaultLanguages()`:
+
 ```go
 // supportedExtensions:
 ".md", ".mdx",
@@ -232,6 +263,7 @@ Expected: PASS
 ```
 
 **Step 5:** Commit
+
 ```bash
 git add internal/chunker/markdown.go internal/chunker/markdown_test.go internal/chunker/languages.go
 git commit -m "feat: add Markdown/MDX chunker splitting by ATX headings"
@@ -242,10 +274,12 @@ git commit -m "feat: add Markdown/MDX chunker splitting by ATX headings"
 ## Task 4: Data chunker (YAML + JSON)
 
 **Files:**
+
 - Create: `internal/chunker/data.go`
 - Create: `internal/chunker/data_test.go`
 
 **Step 1:** Create `internal/chunker/data.go`:
+
 ```go
 // Copyright 2026 Aeneas Rekkas
 // ...
@@ -373,6 +407,7 @@ func (c *DataChunker) chunkJSON(filePath string, content []byte) ([]Chunk, error
 ```
 
 **Step 2:** Create `internal/chunker/data_test.go`:
+
 ```go
 // Copyright 2026 Aeneas Rekkas
 // ...
@@ -446,12 +481,15 @@ func TestDataChunker_EmptyYAML(t *testing.T) {
 ```
 
 **Step 3:** Run tests:
+
 ```bash
 CGO_ENABLED=1 go test ./internal/chunker/... -run TestDataChunker -v
 ```
+
 Expected: PASS
 
 **Step 4:** Register in `languages.go`:
+
 ```go
 // supportedExtensions:
 ".yaml", ".yml", ".json",
@@ -463,11 +501,13 @@ Expected: PASS
 ```
 
 **Step 5:** Build and test:
+
 ```bash
 CGO_ENABLED=1 go build ./... && CGO_ENABLED=1 go test ./...
 ```
 
 **Step 6:** Commit
+
 ```bash
 git add internal/chunker/data.go internal/chunker/data_test.go internal/chunker/languages.go
 git commit -m "feat: add YAML+JSON data chunker splitting by top-level keys"
@@ -478,9 +518,11 @@ git commit -m "feat: add YAML+JSON data chunker splitting by top-level keys"
 ## Task 5: Fixture download script
 
 **Files:**
+
 - Create: `scripts/download-fixtures.sh`
 
-This script downloads 30-50 real source files per language from well-known MIT/Apache-licensed GitHub repos. Run it once; commit results.
+This script downloads 30-50 real source files per language from well-known
+MIT/Apache-licensed GitHub repos. Run it once; commit results.
 
 **Step 1:** Create `scripts/download-fixtures.sh`:
 
@@ -890,17 +932,20 @@ find testdata/fixtures -type f | sort | awk -F/ '{print $3}' | sort | uniq -c | 
 ```
 
 **Step 2:** Make executable and run:
+
 ```bash
 chmod +x scripts/download-fixtures.sh
 bash scripts/download-fixtures.sh
 ```
 
 **Step 3:** Check counts per language (want 20+ per language min):
+
 ```bash
 find testdata/fixtures -type f | awk -F/ '{print $3}' | sort | uniq -c | sort -rn
 ```
 
 **Step 4:** Write SOURCES.md for each language (example for Go):
+
 ```bash
 cat > testdata/fixtures/go/SOURCES.md << 'EOF'
 # Go Fixture Sources
@@ -913,9 +958,11 @@ Files in this directory are vendored from:
 These files are used as test fixtures for semantic code search testing.
 EOF
 ```
+
 Write similar SOURCES.md for each language directory.
 
 **Step 5:** Commit
+
 ```bash
 git add testdata/fixtures/ scripts/
 git commit -m "test: add multi-language fixture files from real open-source projects"
@@ -926,9 +973,12 @@ git commit -m "test: add multi-language fixture files from real open-source proj
 ## Task 6: Snapshot E2E tests per language
 
 **Files:**
+
 - Create: `e2e_lang_test.go`
 
-This file uses `cupaloy` to snapshot-test search results per language. Snapshots are stored in `.snapshots/` relative to the test file (cupaloy default). Scores are stripped before snapshotting since they vary by model.
+This file uses `cupaloy` to snapshot-test search results per language. Snapshots
+are stored in `.snapshots/` relative to the test file (cupaloy default). Scores
+are stripped before snapshotting since they vary by model.
 
 **Step 1:** Create `e2e_lang_test.go`:
 
@@ -1114,22 +1164,32 @@ func TestLang_JSON(t *testing.T) {
 }
 ```
 
-> **Note:** The `session` parameter typing above is simplified for plan readability. The actual implementation uses `*mcp.ClientSession` from the e2e_test.go helpers — use `startServer(t)` which already returns the right type. Remove the `mcpSession` type alias and cast in the real code.
+> **Note:** The `session` parameter typing above is simplified for plan
+> readability. The actual implementation uses `*mcp.ClientSession` from the
+> e2e_test.go helpers — use `startServer(t)` which already returns the right
+> type. Remove the `mcpSession` type alias and cast in the real code.
 
 **Step 2:** Run to generate initial snapshots:
+
 ```bash
 UPDATE_SNAPSHOTS=true CGO_ENABLED=1 go test -tags=e2e -run 'TestLang_' -timeout=30m -v ./...
 ```
+
 Expected: all tests PASS, `.snapshots/` directory populated.
 
 **Step 3:** Review snapshots — look for:
-- Results containing only `package` kind → update query or check chunker skips package decls
-- Unexpectedly empty results → query too specific or chunker not producing chunks
+
+- Results containing only `package` kind → update query or check chunker skips
+  package decls
+- Unexpectedly empty results → query too specific or chunker not producing
+  chunks
 - Results with wrong language files mixed in → check extension registration
 
-**Step 4:** If snapshot review reveals issues, fix chunkers/queries and re-run with `UPDATE_SNAPSHOTS=true`.
+**Step 4:** If snapshot review reveals issues, fix chunkers/queries and re-run
+with `UPDATE_SNAPSHOTS=true`.
 
 **Step 5:** Commit snapshots and test file:
+
 ```bash
 git add e2e_lang_test.go .snapshots/
 git commit -m "test: add multi-language cupaloy snapshot E2E tests"
@@ -1140,11 +1200,13 @@ git commit -m "test: add multi-language cupaloy snapshot E2E tests"
 ## Task 7: Update scoring defaults
 
 **Files:**
+
 - Modify: `cmd/stdio.go` — `SemanticSearchInput.Limit`, `MinScore` description
 - Modify: `cmd/search.go` — `--limit` and `--min-score` flag defaults
 - Modify: `cmd/stdio.go` — `runSemanticSearch` limit fallback
 
 **Step 1:** In `cmd/search.go`, update flag defaults:
+
 ```go
 // Change from:
 searchCmd.Flags().IntP("limit", "l", 10, "max results to return")
@@ -1155,7 +1217,9 @@ searchCmd.Flags().IntP("limit", "l", 50, "max results to return")
 searchCmd.Flags().Float64P("min-score", "s", 0.5, "minimum score threshold; results below this score are excluded (use -1 to return all results)")
 ```
 
-Also update the `maxDistance` conversion to handle `-1` (no filter) and `0.5` default:
+Also update the `maxDistance` conversion to handle `-1` (no filter) and `0.5`
+default:
+
 ```go
 // Change from:
 var maxDistance float64
@@ -1171,13 +1235,16 @@ if minScore > -1 {
 ```
 
 **Step 2:** In `cmd/stdio.go`, update `SemanticSearchInput`:
+
 ```go
 // Change jsonschema tags:
 Limit    int      `json:"limit,omitempty" jsonschema:"Max results to return, default 50"`
 MinScore *float64 `json:"min_score,omitempty" jsonschema:"Minimum score threshold (0 to 1). Results below this score are excluded. Default 0.5. Use -1 to return all results regardless of score."`
 ```
 
-Update the handler where `Limit` fallback is set (find the `if input.Limit == 0` block):
+Update the handler where `Limit` fallback is set (find the `if input.Limit == 0`
+block):
+
 ```go
 if input.Limit == 0 {
     input.Limit = 50
@@ -1185,6 +1252,7 @@ if input.Limit == 0 {
 ```
 
 Update `maxDistance` conversion in the MCP handler:
+
 ```go
 var maxDistance float64
 if input.MinScore != nil && *input.MinScore > -1 {
@@ -1195,14 +1263,18 @@ if input.MinScore != nil && *input.MinScore > -1 {
 }
 ```
 
-**Step 3:** Update existing E2E tests that rely on old defaults — search for `"limit": 10` or no limit specified and ensure they still pass (they use `min_score: -1` to bypass filtering).
+**Step 3:** Update existing E2E tests that rely on old defaults — search for
+`"limit": 10` or no limit specified and ensure they still pass (they use
+`min_score: -1` to bypass filtering).
 
 **Step 4:** Build and run unit tests:
+
 ```bash
 CGO_ENABLED=1 go build ./... && CGO_ENABLED=1 go test ./...
 ```
 
 **Step 5:** Commit
+
 ```bash
 git add cmd/search.go cmd/stdio.go
 git commit -m "feat: change default limit to 50, default min_score to 0.5"
@@ -1214,53 +1286,66 @@ git commit -m "feat: change default limit to 50, default min_score to 0.5"
 
 **Files:** `README.md`, `.github/workflows/ci.yml`
 
-**Step 1:** Add CI badges at the top of `README.md` (after the title `# agent-index`):
+**Step 1:** Add CI badges at the top of `README.md` (after the title
+`# agent-index`):
+
 ```markdown
 [![CI](https://github.com/aeneasr/agent-index-go/actions/workflows/ci.yml/badge.svg)](https://github.com/aeneasr/agent-index-go/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ```
 
-**Step 2:** Update the "Go is the primary language" paragraph to mention all supported languages with chunking strategies. Replace with:
+**Step 2:** Update the "Go is the primary language" paragraph to mention all
+supported languages with chunking strategies. Replace with:
+
 ```markdown
 Supports **11 language families** with semantic chunking:
 
-| Language | Extensions | Chunking strategy |
-|---|---|---|
-| Go | `.go` | Native Go AST — functions, methods, types, interfaces, consts, vars |
-| TypeScript / TSX | `.ts`, `.tsx` | tree-sitter — functions, classes, interfaces, type aliases, methods |
-| JavaScript / JSX | `.js`, `.jsx`, `.mjs` | tree-sitter — functions, classes, methods, generators |
-| Python | `.py` | tree-sitter — function definitions, class definitions |
-| Rust | `.rs` | tree-sitter — functions, structs, enums, traits, impls, consts |
-| Ruby | `.rb` | tree-sitter — methods, singleton methods, classes, modules |
-| Java | `.java` | tree-sitter — methods, classes, interfaces, constructors, enums |
-| PHP | `.php` | tree-sitter — functions, classes, interfaces, traits, methods |
-| C / C++ | `.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp` | tree-sitter — function definitions, structs, enums, classes |
-| Markdown / MDX | `.md`, `.mdx` | Heading-based — each `#` / `##` / `###` section is one chunk |
-| YAML / JSON | `.yaml`, `.yml`, `.json` | Key-based — each top-level key and its value block is one chunk |
+| Language         | Extensions                                | Chunking strategy                                                   |
+| ---------------- | ----------------------------------------- | ------------------------------------------------------------------- |
+| Go               | `.go`                                     | Native Go AST — functions, methods, types, interfaces, consts, vars |
+| TypeScript / TSX | `.ts`, `.tsx`                             | tree-sitter — functions, classes, interfaces, type aliases, methods |
+| JavaScript / JSX | `.js`, `.jsx`, `.mjs`                     | tree-sitter — functions, classes, methods, generators               |
+| Python           | `.py`                                     | tree-sitter — function definitions, class definitions               |
+| Rust             | `.rs`                                     | tree-sitter — functions, structs, enums, traits, impls, consts      |
+| Ruby             | `.rb`                                     | tree-sitter — methods, singleton methods, classes, modules          |
+| Java             | `.java`                                   | tree-sitter — methods, classes, interfaces, constructors, enums     |
+| PHP              | `.php`                                    | tree-sitter — functions, classes, interfaces, traits, methods       |
+| C / C++          | `.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp` | tree-sitter — function definitions, structs, enums, classes         |
+| Markdown / MDX   | `.md`, `.mdx`                             | Heading-based — each `#` / `##` / `###` section is one chunk        |
+| YAML / JSON      | `.yaml`, `.yml`, `.json`                  | Key-based — each top-level key and its value block is one chunk     |
 ```
 
-**Step 3:** Update the MCP Tools section to reflect new defaults (limit=50, min_score=0.5):
+**Step 3:** Update the MCP Tools section to reflect new defaults (limit=50,
+min_score=0.5):
+
 ```markdown
-| `limit` | integer | no | 50 | Max results |
-| `min_score` | float | no | 0.5 | Minimum score threshold (−1 to 1). Use -1 to return all results. |
+| `limit` | integer | no | 50 | Max results | | `min_score` | float | no | 0.5 |
+Minimum score threshold (−1 to 1). Use -1 to return all results. |
 ```
 
 **Step 4:** Update the `agent-index search` flags table:
+
 ```markdown
-| `--limit` | `-l` | 50 | Max results to return |
-| `--min-score` | `-s` | 0.5 | Minimum score threshold; use -1 to return all results |
+| `--limit` | `-l` | 50 | Max results to return | | `--min-score` | `-s` | 0.5 |
+Minimum score threshold; use -1 to return all results |
 ```
 
-**Step 5:** Update `ci.yml` to also run snapshot tests (add a note that e2e includes lang tests):
-The existing `ci.yml` E2E job already runs `go test -tags=e2e ./...` which will include `TestLang_*`. No change needed unless you want a separate job. Consider adding:
+**Step 5:** Update `ci.yml` to also run snapshot tests (add a note that e2e
+includes lang tests): The existing `ci.yml` E2E job already runs
+`go test -tags=e2e ./...` which will include `TestLang_*`. No change needed
+unless you want a separate job. Consider adding:
+
 ```yaml
 - name: Update snapshots check
   run: |
     CGO_ENABLED=1 go test -tags=e2e -run 'TestLang_' -timeout=30m -v ./...
 ```
-inside the e2e job (after existing E2E tests step), or just rely on the existing catch-all.
+
+inside the e2e job (after existing E2E tests step), or just rely on the existing
+catch-all.
 
 **Step 6:** Commit
+
 ```bash
 git add README.md .github/workflows/ci.yml
 git commit -m "docs: update README with language table, new defaults, CI badges"
@@ -1279,6 +1364,7 @@ CGO_ENABLED=1 go test -tags=e2e -timeout=30m -v ./...
 ```
 
 Expected:
+
 - All unit tests PASS
 - All E2E tests PASS (including `TestLang_*` snapshot tests)
 - No snapshot diffs (if snapshots were committed correctly)

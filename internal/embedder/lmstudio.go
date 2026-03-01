@@ -27,7 +27,6 @@ import (
 	"github.com/sethvargo/go-retry"
 )
 
-
 // LMStudio implements the Embedder interface using an LM Studio server
 // that exposes an OpenAI-compatible /v1/embeddings endpoint.
 type LMStudio struct {

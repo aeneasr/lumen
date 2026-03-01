@@ -23,13 +23,13 @@ struct that stores information about a user account.
 
 To use a struct after we’ve defined it, we create an _instance_ of that struct
 by specifying concrete values for each of the fields. We create an instance by
-stating the name of the struct and then add curly brackets containing _`key:
-value`_ pairs, where the keys are the names of the fields and the values are the
-data we want to store in those fields. We don’t have to specify the fields in
-the same order in which we declared them in the struct. In other words, the
-struct definition is like a general template for the type, and instances fill
-in that template with particular data to create values of the type. For
-example, we can declare a particular user as shown in Listing 5-2.
+stating the name of the struct and then add curly brackets containing
+_`key: value`_ pairs, where the keys are the names of the fields and the values
+are the data we want to store in those fields. We don’t have to specify the
+fields in the same order in which we declared them in the struct. In other
+words, the struct definition is like a general template for the type, and
+instances fill in that template with particular data to create values of the
+type. For example, we can declare a particular user as shown in Listing 5-2.
 
 <Listing number="5-2" file-name="src/main.rs" caption="Creating an instance of the `User` struct">
 
@@ -42,8 +42,8 @@ example, we can declare a particular user as shown in Listing 5-2.
 To get a specific value from a struct, we use dot notation. For example, to
 access this user’s email address, we use `user1.email`. If the instance is
 mutable, we can change a value by using the dot notation and assigning into a
-particular field. Listing 5-3 shows how to change the value in the `email`
-field of a mutable `User` instance.
+particular field. Listing 5-3 shows how to change the value in the `email` field
+of a mutable `User` instance.
 
 <Listing number="5-3" file-name="src/main.rs" caption="Changing the value in the `email` field of a `User` instance">
 
@@ -55,8 +55,8 @@ field of a mutable `User` instance.
 
 Note that the entire instance must be mutable; Rust doesn’t allow us to mark
 only certain fields as mutable. As with any expression, we can construct a new
-instance of the struct as the last expression in the function body to
-implicitly return that new instance.
+instance of the struct as the last expression in the function body to implicitly
+return that new instance.
 
 Listing 5-4 shows a `build_user` function that returns a `User` instance with
 the given email and username. The `active` field gets the value `true`, and the
@@ -83,8 +83,8 @@ would get even more annoying. Luckily, there’s a convenient shorthand!
 
 Because the parameter names and the struct field names are exactly the same in
 Listing 5-4, we can use the _field init shorthand_ syntax to rewrite
-`build_user` so that it behaves exactly the same but doesn’t have the
-repetition of `username` and `email`, as shown in Listing 5-5.
+`build_user` so that it behaves exactly the same but doesn’t have the repetition
+of `username` and `email`, as shown in Listing 5-5.
 
 <Listing number="5-5" file-name="src/main.rs" caption="A `build_user` function that uses field init shorthand because the `username` and `email` parameters have the same name as struct fields">
 
@@ -106,9 +106,9 @@ than `email: email`.
 
 ### Creating Instances with Struct Update Syntax
 
-It’s often useful to create a new instance of a struct that includes most of
-the values from another instance of the same type, but changes some of them.
-You can do this using struct update syntax.
+It’s often useful to create a new instance of a struct that includes most of the
+values from another instance of the same type, but changes some of them. You can
+do this using struct update syntax.
 
 First, in Listing 5-6 we show how to create a new `User` instance in `user2` in
 the regular way, without the update syntax. We set a new value for `email` but
@@ -134,13 +134,12 @@ explicitly set should have the same value as the fields in the given instance.
 
 </Listing>
 
-The code in Listing 5-7 also creates an instance in `user2` that has a
-different value for `email` but has the same values for the `username`,
-`active`, and `sign_in_count` fields from `user1`. The `..user1` must come last
-to specify that any remaining fields should get their values from the
-corresponding fields in `user1`, but we can choose to specify values for as
-many fields as we want in any order, regardless of the order of the fields in
-the struct’s definition.
+The code in Listing 5-7 also creates an instance in `user2` that has a different
+value for `email` but has the same values for the `username`, `active`, and
+`sign_in_count` fields from `user1`. The `..user1` must come last to specify
+that any remaining fields should get their values from the corresponding fields
+in `user1`, but we can choose to specify values for as many fields as we want in
+any order, regardless of the order of the fields in the struct’s definition.
 
 Note that the struct update syntax uses `=` like an assignment; this is because
 it moves the data, just as we saw in the [“Variables and Data Interacting with
@@ -181,15 +180,15 @@ tuple structs named `Color` and `Point`:
 
 Note that the `black` and `origin` values are different types because they’re
 instances of different tuple structs. Each struct you define is its own type,
-even though the fields within the struct might have the same types. For
-example, a function that takes a parameter of type `Color` cannot take a
-`Point` as an argument, even though both types are made up of three `i32`
-values. Otherwise, tuple struct instances are similar to tuples in that you can
-destructure them into their individual pieces, and you can use a `.` followed
-by the index to access an individual value. Unlike tuples, tuple structs
-require you to name the type of the struct when you destructure them. For
-example, we would write `let Point(x, y, z) = origin;` to destructure the
-values in the `origin` point into variables named `x`, `y`, and `z`.
+even though the fields within the struct might have the same types. For example,
+a function that takes a parameter of type `Color` cannot take a `Point` as an
+argument, even though both types are made up of three `i32` values. Otherwise,
+tuple struct instances are similar to tuples in that you can destructure them
+into their individual pieces, and you can use a `.` followed by the index to
+access an individual value. Unlike tuples, tuple structs require you to name the
+type of the struct when you destructure them. For example, we would write
+`let Point(x, y, z) = origin;` to destructure the values in the `origin` point
+into variables named `x`, `y`, and `z`.
 
 <!-- Old headings. Do not remove or links may break. -->
 
@@ -198,12 +197,12 @@ values in the `origin` point into variables named `x`, `y`, and `z`.
 ### Defining Unit-Like Structs
 
 You can also define structs that don’t have any fields! These are called
-_unit-like structs_ because they behave similarly to `()`, the unit type that
-we mentioned in [“The Tuple Type”][tuples]<!-- ignore --> section. Unit-like
+_unit-like structs_ because they behave similarly to `()`, the unit type that we
+mentioned in [“The Tuple Type”][tuples]<!-- ignore --> section. Unit-like
 structs can be useful when you need to implement a trait on some type but don’t
-have any data that you want to store in the type itself. We’ll discuss traits
-in Chapter 10. Here’s an example of declaring and instantiating a unit struct
-named `AlwaysEqual`:
+have any data that you want to store in the type itself. We’ll discuss traits in
+Chapter 10. Here’s an example of declaring and instantiating a unit struct named
+`AlwaysEqual`:
 
 <Listing file-name="src/main.rs">
 
@@ -213,15 +212,15 @@ named `AlwaysEqual`:
 
 </Listing>
 
-To define `AlwaysEqual`, we use the `struct` keyword, the name we want, and
-then a semicolon. No need for curly brackets or parentheses! Then, we can get
-an instance of `AlwaysEqual` in the `subject` variable in a similar way: using
-the name we defined, without any curly brackets or parentheses. Imagine that
-later we’ll implement behavior for this type such that every instance of
-`AlwaysEqual` is always equal to every instance of any other type, perhaps to
-have a known result for testing purposes. We wouldn’t need any data to
-implement that behavior! You’ll see in Chapter 10 how to define traits and
-implement them on any type, including unit-like structs.
+To define `AlwaysEqual`, we use the `struct` keyword, the name we want, and then
+a semicolon. No need for curly brackets or parentheses! Then, we can get an
+instance of `AlwaysEqual` in the `subject` variable in a similar way: using the
+name we defined, without any curly brackets or parentheses. Imagine that later
+we’ll implement behavior for this type such that every instance of `AlwaysEqual`
+is always equal to every instance of any other type, perhaps to have a known
+result for testing purposes. We wouldn’t need any data to implement that
+behavior! You’ll see in Chapter 10 how to define traits and implement them on
+any type, including unit-like structs.
 
 > ### Ownership of Struct Data
 >
@@ -234,8 +233,8 @@ implement them on any type, including unit-like structs.
 > else, but to do so requires the use of _lifetimes_, a Rust feature that we’ll
 > discuss in Chapter 10. Lifetimes ensure that the data referenced by a struct
 > is valid for as long as the struct is. Let’s say you try to store a reference
-> in a struct without specifying lifetimes, like the following in
-> *src/main.rs*; this won’t work:
+> in a struct without specifying lifetimes, like the following in _src/main.rs_;
+> this won’t work:
 >
 > <Listing file-name="src/main.rs">
 >

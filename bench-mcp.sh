@@ -71,7 +71,7 @@ CGO_ENABLED=1 go build -o agent-index .
 
 # ── Index ─────────────────────────────────────────────────────────────────────
 echo "Indexing fixtures..."
-./agent-index index "$FIXTURES" 2>&1 | tail -1
+AGENT_INDEX_BACKEND=lmstudio ./agent-index index "$FIXTURES" 2>&1 | tail -1
 
 # ── MCP configs ───────────────────────────────────────────────────────────────
 MCP_ENABLED=$(mktemp /tmp/bench-mcp-enabled-XXXXXX).json
@@ -79,7 +79,7 @@ MCP_EMPTY=$(mktemp /tmp/bench-mcp-empty-XXXXXX).json
 trap 'rm -f "$MCP_ENABLED" "$MCP_EMPTY"' EXIT
 
 cat > "$MCP_ENABLED" <<EOF
-{"mcpServers":{"agent-index":{"command":"$BINARY","args":["stdio"]}}}
+{"mcpServers":{"agent-index":{"command":"$BINARY","args":["stdio"],"env":{"AGENT_INDEX_BACKEND":"lmstudio"}}}}
 EOF
 echo '{"mcpServers":{}}' > "$MCP_EMPTY"
 
@@ -100,6 +100,9 @@ run() {
   local tools_arg=()
   [[ -n "$disable_builtin_tools" ]] && tools_arg=(--tools "")
 
+  local allowed_tools_arg=()
+  [[ "$mcp_cfg" == "$MCP_ENABLED" ]] && allowed_tools_arg=(--allowedTools "mcp__agent-index__semantic_search,mcp__agent-index__index_status")
+
   DISABLE_PROMPT_CACHING=1 claude \
     --output-format stream-json \
     --verbose \
@@ -107,6 +110,7 @@ run() {
     --strict-mcp-config \
     --mcp-config "$mcp_cfg" \
     ${tools_arg[@]:+"${tools_arg[@]}"} \
+    ${allowed_tools_arg[@]:+"${allowed_tools_arg[@]}"} \
     -p "$prompt" \
   > "$raw" 2>&1 || true
 
@@ -138,7 +142,7 @@ run() {
 # ── Extract winner from judge brief file ──────────────────────────────────────
 extract_winner() {
   local brief_file="$1"
-  grep -oP '\*\*Winner: \K[^*]+' "$brief_file" 2>/dev/null | tr -d ' ' || echo "unknown"
+  grep -oE '\*\*Winner: [^*]+' "$brief_file" 2>/dev/null | sed 's/\*\*Winner: //' | tr -d ' \n' || echo "unknown"
 }
 
 # ── Run LLM judge for one question ────────────────────────────────────────────
@@ -279,10 +283,9 @@ emit_overall_comparison() {
   echo "| Question | Difficulty | 🏆 Winner | Runner-up |"
   echo "|----------|------------|-----------|-----------|"
 
-  declare -A scenario_wins
-  scenario_wins["baseline"]=0
-  scenario_wins["mcp-only"]=0
-  scenario_wins["mcp-full"]=0
+  local wins_baseline=0
+  local wins_mcp_only=0
+  local wins_mcp_full=0
 
   local runner_ups=()
 
@@ -296,7 +299,11 @@ emit_overall_comparison() {
     # Tally wins per scenario
     local winner_scenario="${winner#*/}"
     if [[ -n "$winner_scenario" && "$winner" != "unknown" ]]; then
-      scenario_wins["$winner_scenario"]=$(( ${scenario_wins["$winner_scenario"]:-0} + 1 )) || true
+      case "$winner_scenario" in
+        baseline) (( wins_baseline++ )) || true ;;
+        mcp-only) (( wins_mcp_only++ )) || true ;;
+        mcp-full) (( wins_mcp_full++ )) || true ;;
+      esac
     fi
 
     # Find runner-up: second-lowest cost among runs that have metrics, excluding winner
@@ -331,7 +338,12 @@ emit_overall_comparison() {
   local overall_winner_count=0
 
   for scenario in baseline mcp-only mcp-full; do
-    local wins=${scenario_wins["$scenario"]:-0}
+    local wins
+    case "$scenario" in
+      baseline) wins=$wins_baseline ;;
+      mcp-only) wins=$wins_mcp_only ;;
+      mcp-full) wins=$wins_mcp_full ;;
+    esac
     echo "| $scenario | $wins |"
     if (( wins > overall_winner_count )); then
       overall_winner_count=$wins
@@ -508,16 +520,29 @@ echo ""
 for model in "${MODELS[@]}"; do
   echo "── Model: $model ──────────────────────────────────────────"
   for q_idx in "${Q_INDICES[@]}"; do
-    run "$MCP_EMPTY"   "$model" "$q_idx" "baseline" ""
-    run "$MCP_ENABLED" "$model" "$q_idx" "mcp-only"  "1"
-    run "$MCP_ENABLED" "$model" "$q_idx" "mcp-full"  ""
+    _t1=$(mktemp) _t2=$(mktemp) _t3=$(mktemp)
+    run "$MCP_EMPTY"   "$model" "$q_idx" "baseline" ""  >"$_t1" 2>&1 & _p1=$!
+    run "$MCP_ENABLED" "$model" "$q_idx" "mcp-only"  "1" >"$_t2" 2>&1 & _p2=$!
+    run "$MCP_ENABLED" "$model" "$q_idx" "mcp-full"  ""  >"$_t3" 2>&1 & _p3=$!
+    wait "$_p1" || true; cat "$_t1"; rm -f "$_t1"
+    wait "$_p2" || true; cat "$_t2"; rm -f "$_t2"
+    wait "$_p3" || true; cat "$_t3"; rm -f "$_t3"
   done
   echo ""
 done
 
 echo "── Generating LLM judge reports ──────────────────────────────"
+_judge_pids=() _judge_tmps=()
 for q_idx in "${Q_INDICES[@]}"; do
-  run_judge "$q_idx"
+  _jt=$(mktemp)
+  _judge_tmps+=("$_jt")
+  run_judge "$q_idx" >"$_jt" 2>&1 &
+  _judge_pids+=($!)
+done
+for _ji in "${!_judge_pids[@]}"; do
+  wait "${_judge_pids[$_ji]}" || true
+  cat "${_judge_tmps[$_ji]}"
+  rm -f "${_judge_tmps[$_ji]}"
 done
 
 generate_reports

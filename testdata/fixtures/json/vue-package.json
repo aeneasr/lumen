@@ -31,10 +31,7 @@
       "require": "./compiler-sfc/index.js"
     },
     "./dist/*": "./dist/*",
-    "./types/*": [
-      "./types/*.d.ts",
-      "./types/*"
-    ],
+    "./types/*": ["./types/*.d.ts", "./types/*"],
     "./package.json": "./package.json"
   },
   "sideEffects": false,
@@ -66,20 +63,14 @@
     "commit-msg": "node scripts/verify-commit-msg.js"
   },
   "lint-staged": {
-    "*.js": [
-      "prettier --write"
-    ],
-    "*.ts": [
-      "prettier --parser=typescript --write"
-    ]
+    "*.js": ["prettier --write"],
+    "*.ts": ["prettier --parser=typescript --write"]
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vuejs/vue.git"
   },
-  "keywords": [
-    "vue"
-  ],
+  "keywords": ["vue"],
   "author": "Evan You",
   "license": "MIT",
   "bugs": {

@@ -76,9 +76,7 @@
     "cover:test262": "yarn cover:base --testMatch \"<rootDir>/test/*.spectest.js\" --coverage"
   },
   "lint-staged": {
-    "*.{js,cjs,mjs}": [
-      "node node_modules/eslint/bin/eslint.js --cache --fix"
-    ],
+    "*.{js,cjs,mjs}": ["node node_modules/eslint/bin/eslint.js --cache --fix"],
     "*": [
       "node node_modules/prettier/bin/prettier.cjs --cache --write --ignore-unknown",
       "cspell --cache --no-must-find-files"

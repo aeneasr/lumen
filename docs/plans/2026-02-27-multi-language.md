@@ -1,18 +1,27 @@
 # Multi-Language Support Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to
+> implement this plan task-by-task.
 
-**Goal:** Extend agent-index to index and semantically search any supported language, not just Go, using `smacker/go-tree-sitter` for all non-Go files while keeping go/ast for `.go`.
+**Goal:** Extend agent-index to index and semantically search any supported
+language, not just Go, using `smacker/go-tree-sitter` for all non-Go files while
+keeping go/ast for `.go`.
 
-**Architecture:** Add a `TreeSitterChunker` (smacker-based, per-language) and a `MultiChunker` dispatcher (extension → Chunker). `DefaultLanguages()` pre-wires all supported languages. Update `merkle.DefaultSkip` to cover all extensions. Wire `MultiChunker` into `NewIndexer`. The `Chunker` interface, `Chunk` struct, `Store`, and MCP tools are all unchanged.
+**Architecture:** Add a `TreeSitterChunker` (smacker-based, per-language) and a
+`MultiChunker` dispatcher (extension → Chunker). `DefaultLanguages()` pre-wires
+all supported languages. Update `merkle.DefaultSkip` to cover all extensions.
+Wire `MultiChunker` into `NewIndexer`. The `Chunker` interface, `Chunk` struct,
+`Store`, and MCP tools are all unchanged.
 
-**Tech Stack:** Go 1.26, `github.com/smacker/go-tree-sitter` (new), existing CGo/sqlite-vec stack.
+**Tech Stack:** Go 1.26, `github.com/smacker/go-tree-sitter` (new), existing
+CGo/sqlite-vec stack.
 
 ---
 
 ## Task 1: Add smacker/go-tree-sitter dependency
 
 **Files:**
+
 - Modify: `go.mod`, `go.sum`
 
 **Step 1: Add the dependency**
@@ -27,7 +36,8 @@ CGO_ENABLED=1 go get github.com/smacker/go-tree-sitter@latest
 CGO_ENABLED=1 go build ./...
 ```
 
-Expected: no errors. The package has CGo so `CGO_ENABLED=1` is required (same as sqlite-vec — already in the project's build flow).
+Expected: no errors. The package has CGo so `CGO_ENABLED=1` is required (same as
+sqlite-vec — already in the project's build flow).
 
 **Step 3: Commit**
 
@@ -41,16 +51,22 @@ git commit -m "chore: add smacker/go-tree-sitter dependency"
 ## Task 2: Create `TreeSitterChunker`
 
 **Files:**
+
 - Create: `internal/chunker/treesitter.go`
 - Create: `internal/chunker/treesitter_test.go`
 
 ### Background
 
 `TreeSitterChunker` holds:
-- a `*sitter.Language` (the grammar, e.g. Python)
-- a slice of `compiledRule` — each rule is a compiled tree-sitter query + a kind string ("function", "type", etc.)
 
-`Chunk()` creates a fresh parser per call (avoids thread-safety issues), parses the content, runs each rule's query, and collects matches. Each match has two captures:
+- a `*sitter.Language` (the grammar, e.g. Python)
+- a slice of `compiledRule` — each rule is a compiled tree-sitter query + a kind
+  string ("function", "type", etc.)
+
+`Chunk()` creates a fresh parser per call (avoids thread-safety issues), parses
+the content, runs each rule's query, and collects matches. Each match has two
+captures:
+
 - `@decl` — the whole declaration node (gives start/end lines and content)
 - `@name` — the identifier node (gives symbol name)
 
@@ -156,7 +172,8 @@ func symbolNames(chunks []chunker.Chunk) []string {
 CGO_ENABLED=1 go test ./internal/chunker/ -run TestTreeSitterChunker_Python -v
 ```
 
-Expected: compile error — `chunker.LanguageDef`, `chunker.QueryDef`, `chunker.NewTreeSitterChunker` do not exist yet.
+Expected: compile error — `chunker.LanguageDef`, `chunker.QueryDef`,
+`chunker.NewTreeSitterChunker` do not exist yet.
 
 **Step 3: Implement `internal/chunker/treesitter.go`**
 
@@ -445,6 +462,7 @@ git commit -m "feat: add TreeSitterChunker for multi-language AST parsing"
 ## Task 3: Create `MultiChunker` and `DefaultLanguages()`
 
 **Files:**
+
 - Create: `internal/chunker/multi.go`
 - Create: `internal/chunker/languages.go`
 - Modify: `internal/chunker/treesitter_test.go` (add MultiChunker tests)
@@ -489,7 +507,9 @@ func TestMultiChunker_Dispatch(t *testing.T) {
 }
 ```
 
-Also export `MustTreeSitterChunker` (uppercase) from `treesitter.go` — rename `mustTreeSitterChunker` to `MustTreeSitterChunker` for use in tests and languages.go.
+Also export `MustTreeSitterChunker` (uppercase) from `treesitter.go` — rename
+`mustTreeSitterChunker` to `MustTreeSitterChunker` for use in tests and
+languages.go.
 
 **Step 2: Run to verify it fails**
 
@@ -738,6 +758,7 @@ git commit -m "feat: add MultiChunker and DefaultLanguages for all supported fil
 ## Task 4: Update Merkle skip and wire MultiChunker into Indexer
 
 **Files:**
+
 - Modify: `internal/merkle/merkle.go`
 - Modify: `internal/index/index.go`
 
@@ -788,7 +809,8 @@ func NewIndexer(dsn string, emb embedder.Embedder) (*Indexer, error) {
 }
 ```
 
-Also update both `BuildTree` calls in `index.go` (there are two — in `Index` and `EnsureFresh`) to use `MakeExtSkip`:
+Also update both `BuildTree` calls in `index.go` (there are two — in `Index` and
+`EnsureFresh`) to use `MakeExtSkip`:
 
 ```go
 // Change:
@@ -797,7 +819,8 @@ curTree, err := merkle.BuildTree(projectDir, nil)
 curTree, err := merkle.BuildTree(projectDir, merkle.MakeExtSkip(chunker.SupportedExtensions()))
 ```
 
-**Important:** There are two `merkle.BuildTree` calls — one in `Index()` and one in `EnsureFresh()`. Update both.
+**Important:** There are two `merkle.BuildTree` calls — one in `Index()` and one
+in `EnsureFresh()`. Update both.
 
 **Step 3: Run the full test suite**
 
@@ -805,7 +828,9 @@ curTree, err := merkle.BuildTree(projectDir, merkle.MakeExtSkip(chunker.Supporte
 CGO_ENABLED=1 go test ./... -v
 ```
 
-Expected: all tests PASS. The existing go/ast tests, store tests, and merkle tests should all continue to pass. The indexer tests should pass since `.go` files are still handled by `GoAST` via the MultiChunker.
+Expected: all tests PASS. The existing go/ast tests, store tests, and merkle
+tests should all continue to pass. The indexer tests should pass since `.go`
+files are still handled by `GoAST` via the MultiChunker.
 
 **Step 4: Commit**
 
@@ -820,7 +845,8 @@ git commit -m "feat: wire MultiChunker and MakeExtSkip for multi-language indexi
 
 After all tests pass:
 
-1. Launch a `pr-review-toolkit:pr-test-analyzer` subagent to verify that test cases are meaningful and match the implementation.
+1. Launch a `pr-review-toolkit:pr-test-analyzer` subagent to verify that test
+   cases are meaningful and match the implementation.
 
 2. Address any issues the subagent identifies.
 

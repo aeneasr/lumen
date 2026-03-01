@@ -43,7 +43,7 @@ func (m *mockEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 	return vecs, nil
 }
 
-func (m *mockEmbedder) Dimensions() int  { return m.dims }
+func (m *mockEmbedder) Dimensions() int   { return m.dims }
 func (m *mockEmbedder) ModelName() string { return m.model }
 
 func TestIndexer_IndexAndSearch(t *testing.T) {

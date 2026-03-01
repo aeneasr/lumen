@@ -19,12 +19,11 @@ take these actions, which include the `test` attribute, a few macros, and the
 ### Structuring Test Functions
 
 At its simplest, a test in Rust is a function that’s annotated with the `test`
-attribute. Attributes are metadata about pieces of Rust code; one example is
-the `derive` attribute we used with structs in Chapter 5. To change a function
-into a test function, add `#[test]` on the line before `fn`. When you run your
-tests with the `cargo test` command, Rust builds a test runner binary that runs
-the annotated functions and reports on whether each test function passes or
-fails.
+attribute. Attributes are metadata about pieces of Rust code; one example is the
+`derive` attribute we used with structs in Chapter 5. To change a function into
+a test function, add `#[test]` on the line before `fn`. When you run your tests
+with the `cargo test` command, Rust builds a test runner binary that runs the
+annotated functions and reports on whether each test function passes or fails.
 
 Whenever we make a new library project with Cargo, a test module with a test
 function in it is automatically generated for us. This module gives you a
@@ -70,15 +69,15 @@ The file starts with an example `add` function so that we have something to
 test.
 
 For now, let’s focus solely on the `it_works` function. Note the `#[test]`
-annotation: This attribute indicates this is a test function, so the test
-runner knows to treat this function as a test. We might also have non-test
-functions in the `tests` module to help set up common scenarios or perform
-common operations, so we always need to indicate which functions are tests.
+annotation: This attribute indicates this is a test function, so the test runner
+knows to treat this function as a test. We might also have non-test functions in
+the `tests` module to help set up common scenarios or perform common operations,
+so we always need to indicate which functions are tests.
 
 The example function body uses the `assert_eq!` macro to assert that `result`,
 which contains the result of calling `add` with 2 and 2, equals 4. This
-assertion serves as an example of the format for a typical test. Let’s run it
-to see that this test passes.
+assertion serves as an example of the format for a typical test. Let’s run it to
+see that this test passes.
 
 The `cargo test` command runs all tests in our project, as shown in Listing
 11-2.
@@ -91,20 +90,20 @@ The `cargo test` command runs all tests in our project, as shown in Listing
 
 </Listing>
 
-Cargo compiled and ran the test. We see the line `running 1 test`. The next
-line shows the name of the generated test function, called `tests::it_works`,
-and that the result of running that test is `ok`. The overall summary `test
-result: ok.` means that all the tests passed, and the portion that reads `1
-passed; 0 failed` totals the number of tests that passed or failed.
+Cargo compiled and ran the test. We see the line `running 1 test`. The next line
+shows the name of the generated test function, called `tests::it_works`, and
+that the result of running that test is `ok`. The overall summary
+`test result: ok.` means that all the tests passed, and the portion that reads
+`1 passed; 0 failed` totals the number of tests that passed or failed.
 
 It’s possible to mark a test as ignored so that it doesn’t run in a particular
 instance; we’ll cover that in the [“Ignoring Tests Unless Specifically
 Requested”][ignoring]<!-- ignore --> section later in this chapter. Because we
 haven’t done that here, the summary shows `0 ignored`. We can also pass an
 argument to the `cargo test` command to run only tests whose name matches a
-string; this is called _filtering_, and we’ll cover it in the [“Running a
-Subset of Tests by Name”][subset]<!-- ignore --> section. Here, we haven’t
-filtered the tests being run, so the end of the summary shows `0 filtered out`.
+string; this is called _filtering_, and we’ll cover it in the [“Running a Subset
+of Tests by Name”][subset]<!-- ignore --> section. Here, we haven’t filtered the
+tests being run, so the end of the summary shows `0 filtered out`.
 
 The `0 measured` statistic is for benchmark tests that measure performance.
 Benchmark tests are, as of this writing, only available in nightly Rust. See
@@ -137,9 +136,9 @@ Then, run `cargo test` again. The output now shows `exploration` instead of
 Now we’ll add another test, but this time we’ll make a test that fails! Tests
 fail when something in the test function panics. Each test is run in a new
 thread, and when the main thread sees that a test thread has died, the test is
-marked as failed. In Chapter 9, we talked about how the simplest way to panic
-is to call the `panic!` macro. Enter the new test as a function named
-`another`, so your _src/lib.rs_ file looks like Listing 11-3.
+marked as failed. In Chapter 9, we talked about how the simplest way to panic is
+to call the `panic!` macro. Enter the new test as a function named `another`, so
+your _src/lib.rs_ file looks like Listing 11-3.
 
 <Listing number="11-3" file-name="src/lib.rs" caption="Adding a second test that will fail because we call the `panic!` macro">
 
@@ -165,13 +164,13 @@ rg panicked listings/ch11-writing-automated-tests/listing-11-03/output.txt
 check the line number of the panic matches the line number in the following paragraph
  -->
 
-Instead of `ok`, the line `test tests::another` shows `FAILED`. Two new
-sections appear between the individual results and the summary: The first
-displays the detailed reason for each test failure. In this case, we get the
-details that `tests::another` failed because it panicked with the message `Make
-this test fail` on line 17 in the _src/lib.rs_ file. The next section lists
-just the names of all the failing tests, which is useful when there are lots of
-tests and lots of detailed failing test output. We can use the name of a
+Instead of `ok`, the line `test tests::another` shows `FAILED`. Two new sections
+appear between the individual results and the summary: The first displays the
+detailed reason for each test failure. In this case, we get the details that
+`tests::another` failed because it panicked with the message
+`Make this test fail` on line 17 in the _src/lib.rs_ file. The next section
+lists just the names of all the failing tests, which is useful when there are
+lots of tests and lots of detailed failing test output. We can use the name of a
 failing test to run just that test to debug it more easily; we’ll talk more
 about ways to run tests in the [“Controlling How Tests Are
 Run”][controlling-how-tests-are-run]<!-- ignore --> section.
@@ -190,10 +189,10 @@ let’s look at some macros other than `panic!` that are useful in tests.
 
 The `assert!` macro, provided by the standard library, is useful when you want
 to ensure that some condition in a test evaluates to `true`. We give the
-`assert!` macro an argument that evaluates to a Boolean. If the value is
-`true`, nothing happens and the test passes. If the value is `false`, the
-`assert!` macro calls `panic!` to cause the test to fail. Using the `assert!`
-macro helps us check that our code is functioning in the way we intend.
+`assert!` macro an argument that evaluates to a Boolean. If the value is `true`,
+nothing happens and the test passes. If the value is `false`, the `assert!`
+macro calls `panic!` to cause the test to fail. Using the `assert!` macro helps
+us check that our code is functioning in the way we intend.
 
 In Chapter 5, Listing 5-15, we used a `Rectangle` struct and a `can_hold`
 method, which are repeated here in Listing 11-5. Let’s put this code in the
@@ -207,11 +206,11 @@ _src/lib.rs_ file, then write some tests for it using the `assert!` macro.
 
 </Listing>
 
-The `can_hold` method returns a Boolean, which means it’s a perfect use case
-for the `assert!` macro. In Listing 11-6, we write a test that exercises the
-`can_hold` method by creating a `Rectangle` instance that has a width of 8 and
-a height of 7 and asserting that it can hold another `Rectangle` instance that
-has a width of 5 and a height of 1.
+The `can_hold` method returns a Boolean, which means it’s a perfect use case for
+the `assert!` macro. In Listing 11-6, we write a test that exercises the
+`can_hold` method by creating a `Rectangle` instance that has a width of 8 and a
+height of 7 and asserting that it can hold another `Rectangle` instance that has
+a width of 5 and a height of 1.
 
 <Listing number="11-6" file-name="src/lib.rs" caption="A test for `can_hold` that checks whether a larger rectangle can indeed hold a smaller rectangle">
 
@@ -221,13 +220,13 @@ has a width of 5 and a height of 1.
 
 </Listing>
 
-Note the `use super::*;` line inside the `tests` module. The `tests` module is
-a regular module that follows the usual visibility rules we covered in Chapter
-7 in the [“Paths for Referring to an Item in the Module
+Note the `use super::*;` line inside the `tests` module. The `tests` module is a
+regular module that follows the usual visibility rules we covered in Chapter 7
+in the [“Paths for Referring to an Item in the Module
 Tree”][paths-for-referring-to-an-item-in-the-module-tree]<!-- ignore -->
 section. Because the `tests` module is an inner module, we need to bring the
-code under test in the outer module into the scope of the inner module. We use
-a glob here, so anything we define in the outer module is available to this
+code under test in the outer module into the scope of the inner module. We use a
+glob here, so anything we define in the outer module is available to this
 `tests` module.
 
 We’ve named our test `larger_can_hold_smaller`, and we’ve created the two
@@ -258,8 +257,8 @@ result, our test will pass if `can_hold` returns `false`:
 
 Two tests that pass! Now let’s see what happens to our test results when we
 introduce a bug in our code. We’ll change the implementation of the `can_hold`
-method by replacing the greater-than sign (`>`) with a less-than sign (`<`)
-when it compares the widths:
+method by replacing the greater-than sign (`>`) with a less-than sign (`<`) when
+it compares the widths:
 
 ```rust,not_desired_behavior,noplayground
 {{#rustdoc_include ../listings/ch11-writing-automated-tests/no-listing-03-introducing-a-bug/src/lib.rs:here}}
@@ -282,15 +281,15 @@ less than 5.
 ### Testing Equality with `assert_eq!` and `assert_ne!`
 
 A common way to verify functionality is to test for equality between the result
-of the code under test and the value you expect the code to return. You could
-do this by using the `assert!` macro and passing it an expression using the
-`==` operator. However, this is such a common test that the standard library
-provides a pair of macros—`assert_eq!` and `assert_ne!`—to perform this test
-more conveniently. These macros compare two arguments for equality or
-inequality, respectively. They’ll also print the two values if the assertion
-fails, which makes it easier to see _why_ the test failed; conversely, the
-`assert!` macro only indicates that it got a `false` value for the `==`
-expression, without printing the values that led to the `false` value.
+of the code under test and the value you expect the code to return. You could do
+this by using the `assert!` macro and passing it an expression using the `==`
+operator. However, this is such a common test that the standard library provides
+a pair of macros—`assert_eq!` and `assert_ne!`—to perform this test more
+conveniently. These macros compare two arguments for equality or inequality,
+respectively. They’ll also print the two values if the assertion fails, which
+makes it easier to see _why_ the test failed; conversely, the `assert!` macro
+only indicates that it got a `false` value for the `==` expression, without
+printing the values that led to the `false` value.
 
 In Listing 11-7, we write a function named `add_two` that adds `2` to its
 parameter, and then we test this function using the `assert_eq!` macro.
@@ -311,8 +310,9 @@ Let’s check that it passes!
 
 We create a variable named `result` that holds the result of calling
 `add_two(2)`. Then, we pass `result` and `4` as the arguments to the
-`assert_eq!` macro. The output line for this test is `test tests::it_adds_two
-... ok`, and the `ok` text indicates that our test passed!
+`assert_eq!` macro. The output line for this test is
+`test tests::it_adds_two ... ok`, and the `ok` text indicates that our test
+passed!
 
 Let’s introduce a bug into our code to see what `assert_eq!` looks like when it
 fails. Change the implementation of the `add_two` function to instead add `3`:
@@ -337,10 +337,10 @@ when we have a lot of tests going on.
 Note that in some languages and test frameworks, the parameters to equality
 assertion functions are called `expected` and `actual`, and the order in which
 we specify the arguments matters. However, in Rust, they’re called `left` and
-`right`, and the order in which we specify the value we expect and the value
-the code produces doesn’t matter. We could write the assertion in this test as
+`right`, and the order in which we specify the value we expect and the value the
+code produces doesn’t matter. We could write the assertion in this test as
 `assert_eq!(4, result)`, which would result in the same failure message that
-displays `` assertion `left == right` failed ``.
+displays ``assertion `left == right` failed``.
 
 The `assert_ne!` macro will pass if the two values we give it are not equal and
 will fail if they are equal. This macro is most useful for cases when we’re not
@@ -375,8 +375,8 @@ placeholders and values to go in those placeholders. Custom messages are useful
 for documenting what an assertion means; when a test fails, you’ll have a better
 idea of what the problem is with the code.
 
-For example, let’s say we have a function that greets people by name and we
-want to test that the name we pass into the function appears in the output:
+For example, let’s say we have a function that greets people by name and we want
+to test that the name we pass into the function appears in the output:
 
 <span class="filename">Filename: src/lib.rs</span>
 
@@ -384,12 +384,12 @@ want to test that the name we pass into the function appears in the output:
 {{#rustdoc_include ../listings/ch11-writing-automated-tests/no-listing-05-greeter/src/lib.rs}}
 ```
 
-The requirements for this program haven’t been agreed upon yet, and we’re
-pretty sure the `Hello` text at the beginning of the greeting will change. We
-decided we don’t want to have to update the test when the requirements change,
-so instead of checking for exact equality to the value returned from the
-`greeting` function, we’ll just assert that the output contains the text of the
-input parameter.
+The requirements for this program haven’t been agreed upon yet, and we’re pretty
+sure the `Hello` text at the beginning of the greeting will change. We decided
+we don’t want to have to update the test when the requirements change, so
+instead of checking for exact equality to the value returned from the `greeting`
+function, we’ll just assert that the output contains the text of the input
+parameter.
 
 Now let’s introduce a bug into this code by changing `greeting` to exclude
 `name` to see what the default test failure looks like:
@@ -427,14 +427,14 @@ debug what happened instead of what we were expecting to happen.
 
 In addition to checking return values, it’s important to check that our code
 handles error conditions as we expect. For example, consider the `Guess` type
-that we created in Chapter 9, Listing 9-13. Other code that uses `Guess`
-depends on the guarantee that `Guess` instances will contain only values
-between 1 and 100. We can write a test that ensures that attempting to create a
-`Guess` instance with a value outside that range panics.
+that we created in Chapter 9, Listing 9-13. Other code that uses `Guess` depends
+on the guarantee that `Guess` instances will contain only values between 1
+and 100. We can write a test that ensures that attempting to create a `Guess`
+instance with a value outside that range panics.
 
-We do this by adding the attribute `should_panic` to our test function. The
-test passes if the code inside the function panics; the test fails if the code
-inside the function doesn’t panic.
+We do this by adding the attribute `should_panic` to our test function. The test
+passes if the code inside the function panics; the test fails if the code inside
+the function doesn’t panic.
 
 Listing 11-8 shows a test that checks that the error conditions of `Guess::new`
 happen when we expect them to.
@@ -455,8 +455,8 @@ passes:
 {{#include ../listings/ch11-writing-automated-tests/listing-11-08/output.txt}}
 ```
 
-Looks good! Now let’s introduce a bug in our code by removing the condition
-that the `new` function will panic if the value is greater than 100:
+Looks good! Now let’s introduce a bug in our code by removing the condition that
+the `new` function will panic if the value is greater than 100:
 
 ```rust,not_desired_behavior,noplayground
 {{#rustdoc_include ../listings/ch11-writing-automated-tests/no-listing-08-guess-with-bug/src/lib.rs:here}}
@@ -472,14 +472,13 @@ We don’t get a very helpful message in this case, but when we look at the test
 function, we see that it’s annotated with `#[should_panic]`. The failure we got
 means that the code in the test function did not cause a panic.
 
-Tests that use `should_panic` can be imprecise. A `should_panic` test would
-pass even if the test panics for a different reason from the one we were
-expecting. To make `should_panic` tests more precise, we can add an optional
-`expected` parameter to the `should_panic` attribute. The test harness will
-make sure that the failure message contains the provided text. For example,
-consider the modified code for `Guess` in Listing 11-9 where the `new` function
-panics with different messages depending on whether the value is too small or
-too large.
+Tests that use `should_panic` can be imprecise. A `should_panic` test would pass
+even if the test panics for a different reason from the one we were expecting.
+To make `should_panic` tests more precise, we can add an optional `expected`
+parameter to the `should_panic` attribute. The test harness will make sure that
+the failure message contains the provided text. For example, consider the
+modified code for `Guess` in Listing 11-9 where the `new` function panics with
+different messages depending on whether the value is too small or too large.
 
 <Listing number="11-9" file-name="src/lib.rs" caption="Testing for a `panic!` with a panic message containing a specified substring">
 
@@ -492,14 +491,15 @@ too large.
 This test will pass because the value we put in the `should_panic` attribute’s
 `expected` parameter is a substring of the message that the `Guess::new`
 function panics with. We could have specified the entire panic message that we
-expect, which in this case would be `Guess value must be less than or equal to
-100, got 200`. What you choose to specify depends on how much of the panic
-message is unique or dynamic and how precise you want your test to be. In this
-case, a substring of the panic message is enough to ensure that the code in the
-test function executes the `else if value > 100` case.
+expect, which in this case would be
+`Guess value must be less than or equal to 100, got 200`. What you choose to
+specify depends on how much of the panic message is unique or dynamic and how
+precise you want your test to be. In this case, a substring of the panic message
+is enough to ensure that the code in the test function executes the
+`else if value > 100` case.
 
-To see what happens when a `should_panic` test with an `expected` message
-fails, let’s again introduce a bug into our code by swapping the bodies of the
+To see what happens when a `should_panic` test with an `expected` message fails,
+let’s again introduce a bug into our code by swapping the bodies of the
 `if value < 1` and the `else if value > 100` blocks:
 
 ```rust,ignore,not_desired_behavior
@@ -513,16 +513,16 @@ This time when we run the `should_panic` test, it will fail:
 ```
 
 The failure message indicates that this test did indeed panic as we expected,
-but the panic message did not include the expected string `less than or equal
-to 100`. The panic message that we did get in this case was `Guess value must
-be greater than or equal to 1, got 200`. Now we can start figuring out where
-our bug is!
+but the panic message did not include the expected string
+`less than or equal to 100`. The panic message that we did get in this case was
+`Guess value must be greater than or equal to 1, got 200`. Now we can start
+figuring out where our bug is!
 
 ### Using `Result<T, E>` in Tests
 
 All of our tests so far panic when they fail. We can also write tests that use
-`Result<T, E>`! Here’s the test from Listing 11-1, rewritten to use `Result<T,
-E>` and return an `Err` instead of panicking:
+`Result<T, E>`! Here’s the test from Listing 11-1, rewritten to use
+`Result<T, E>` and return an `Err` instead of panicking:
 
 ```rust,noplayground
 {{#rustdoc_include ../listings/ch11-writing-automated-tests/no-listing-10-result-in-tests/src/lib.rs:here}}
@@ -538,20 +538,24 @@ question mark operator in the body of tests, which can be a convenient way to
 write tests that should fail if any operation within them returns an `Err`
 variant.
 
-You can’t use the `#[should_panic]` annotation on tests that use `Result<T,
-E>`. To assert that an operation returns an `Err` variant, _don’t_ use the
-question mark operator on the `Result<T, E>` value. Instead, use
+You can’t use the `#[should_panic]` annotation on tests that use `Result<T, E>`.
+To assert that an operation returns an `Err` variant, _don’t_ use the question
+mark operator on the `Result<T, E>` value. Instead, use
 `assert!(value.is_err())`.
 
 Now that you know several ways to write tests, let’s look at what is happening
-when we run our tests and explore the different options we can use with `cargo
-test`.
+when we run our tests and explore the different options we can use with
+`cargo test`.
 
 [concatenating]: ch08-02-strings.html#concatenating-with--or-format
 [bench]: ../unstable-book/library-features/test.html
-[ignoring]: ch11-02-running-tests.html#ignoring-tests-unless-specifically-requested
+[ignoring]:
+  ch11-02-running-tests.html#ignoring-tests-unless-specifically-requested
 [subset]: ch11-02-running-tests.html#running-a-subset-of-tests-by-name
-[controlling-how-tests-are-run]: ch11-02-running-tests.html#controlling-how-tests-are-run
+[controlling-how-tests-are-run]:
+  ch11-02-running-tests.html#controlling-how-tests-are-run
 [derivable-traits]: appendix-03-derivable-traits.html
-[doc-comments]: ch14-02-publishing-to-crates-io.html#documentation-comments-as-tests
-[paths-for-referring-to-an-item-in-the-module-tree]: ch07-03-paths-for-referring-to-an-item-in-the-module-tree.html
+[doc-comments]:
+  ch14-02-publishing-to-crates-io.html#documentation-comments-as-tests
+[paths-for-referring-to-an-item-in-the-module-tree]:
+  ch07-03-paths-for-referring-to-an-item-in-the-module-tree.html

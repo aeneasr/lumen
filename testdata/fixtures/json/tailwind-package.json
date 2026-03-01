@@ -6,22 +6,16 @@
     "semi": false,
     "singleQuote": true,
     "printWidth": 100,
-    "plugins": [
-      "prettier-plugin-organize-imports"
-    ],
+    "plugins": ["prettier-plugin-organize-imports"],
     "overrides": [
       {
-        "files": [
-          "tsconfig.json"
-        ],
+        "files": ["tsconfig.json"],
         "options": {
           "parser": "jsonc"
         }
       },
       {
-        "files": [
-          "integrations/**/*.ts"
-        ],
+        "files": ["integrations/**/*.ts"],
         "options": {
           "plugins": [
             "prettier-plugin-embed",

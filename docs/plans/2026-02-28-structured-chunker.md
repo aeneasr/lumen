@@ -1,12 +1,22 @@
 # Structured YAML/JSON Chunker Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to
+> implement this plan task-by-task.
 
-**Goal:** Replace the plain-text `DataChunker` for YAML/JSON with a recursive, structure-aware `StructuredChunker` that splits at YAML/JSON key boundaries instead of line boundaries.
+**Goal:** Replace the plain-text `DataChunker` for YAML/JSON with a recursive,
+structure-aware `StructuredChunker` that splits at YAML/JSON key boundaries
+instead of line boundaries.
 
-**Architecture:** Parse YAML/JSON into `yaml.v3` nodes (yaml.v3 understands both formats). Walk the tree depth-first: if a subtree fits within the token budget, emit it as one chunk with its dotted key path prepended to the content. If it's too large, recurse into its children. `splitOversizedChunks` in `index/split.go` remains the backstop for leaf nodes that cannot be subdivided further. Small files (whole file ≤ maxChars) pass through as a single `document` chunk, preserving the current fast path.
+**Architecture:** Parse YAML/JSON into `yaml.v3` nodes (yaml.v3 understands both
+formats). Walk the tree depth-first: if a subtree fits within the token budget,
+emit it as one chunk with its dotted key path prepended to the content. If it's
+too large, recurse into its children. `splitOversizedChunks` in `index/split.go`
+remains the backstop for leaf nodes that cannot be subdivided further. Small
+files (whole file ≤ maxChars) pass through as a single `document` chunk,
+preserving the current fast path.
 
-**Tech Stack:** `gopkg.in/yaml.v3` (adds position-aware YAML/JSON parsing), Go stdlib only otherwise.
+**Tech Stack:** `gopkg.in/yaml.v3` (adds position-aware YAML/JSON parsing), Go
+stdlib only otherwise.
 
 ---
 
@@ -14,20 +24,28 @@
 
 - `internal/chunker/chunker.go` — `Chunk` struct and `Chunker` interface
 - `internal/chunker/goast.go` — `makeChunk()` helper (shared by all chunkers)
-- `internal/chunker/data.go` — current DataChunker (plain-text, to be superseded)
-- `internal/chunker/data_test.go` — DataChunker unit tests (keep, still test DataChunker in isolation)
-- `internal/chunker/languages.go` — `DefaultLanguages()` wires `.yaml`/`.yml`/`.json` → DataChunker (change to StructuredChunker)
-- `internal/chunker/markdown.go` — good reference: heading-based structural chunker, same pattern we're implementing for YAML/JSON
+- `internal/chunker/data.go` — current DataChunker (plain-text, to be
+  superseded)
+- `internal/chunker/data_test.go` — DataChunker unit tests (keep, still test
+  DataChunker in isolation)
+- `internal/chunker/languages.go` — `DefaultLanguages()` wires
+  `.yaml`/`.yml`/`.json` → DataChunker (change to StructuredChunker)
+- `internal/chunker/markdown.go` — good reference: heading-based structural
+  chunker, same pattern we're implementing for YAML/JSON
 - `internal/index/split.go` — `splitOversizedChunks` backstop (do not change)
-- `internal/config/config.go` — `EnvOrDefaultInt("AGENT_INDEX_MAX_CHUNK_TOKENS", 2048)`
-- `testdata/snapshots/TestLang_YAML-*` — 4 snapshots, **already deleted**, will be recreated
-- `testdata/snapshots/TestLang_JSON-*` — 4 snapshots, **already deleted**, will be recreated
+- `internal/config/config.go` —
+  `EnvOrDefaultInt("AGENT_INDEX_MAX_CHUNK_TOKENS", 2048)`
+- `testdata/snapshots/TestLang_YAML-*` — 4 snapshots, **already deleted**, will
+  be recreated
+- `testdata/snapshots/TestLang_JSON-*` — 4 snapshots, **already deleted**, will
+  be recreated
 
 ---
 
 ## Task 1: Add `gopkg.in/yaml.v3` dependency
 
 **Files:**
+
 - Modify: `go.mod`, `go.sum`
 
 **Step 1: Add the dependency**
@@ -59,9 +77,11 @@ git commit -m "chore: add gopkg.in/yaml.v3 for structured YAML/JSON chunker"
 ## Task 2: Implement `StructuredChunker`
 
 **Files:**
+
 - Create: `internal/chunker/structured.go`
 
-**Step 1: Write the failing test first** (see Task 3 — do Task 3 Step 1 before implementing)
+**Step 1: Write the failing test first** (see Task 3 — do Task 3 Step 1 before
+implementing)
 
 **Step 2: Implement `internal/chunker/structured.go`**
 
@@ -242,6 +262,7 @@ Expected: no errors.
 ## Task 3: Unit tests for `StructuredChunker`
 
 **Files:**
+
 - Create: `internal/chunker/structured_test.go`
 
 **Step 1: Write the tests**
@@ -463,7 +484,8 @@ func symbolKeys(m map[string]bool) []string {
 go test ./internal/chunker/... -run TestStructuredChunker -v
 ```
 
-Expected: tests fail because `NewStructuredChunker` doesn't exist yet — this confirms the test file compiles but the implementation needs writing.
+Expected: tests fail because `NewStructuredChunker` doesn't exist yet — this
+confirms the test file compiles but the implementation needs writing.
 
 Actually at this point the implementation from Task 2 should exist. Run again:
 
@@ -485,11 +507,13 @@ git commit -m "feat: add StructuredChunker with recursive YAML/JSON key-hierarch
 ## Task 4: Wire `StructuredChunker` into `DefaultLanguages`
 
 **Files:**
+
 - Modify: `internal/chunker/languages.go`
 
 **Step 1: Replace DataChunker with StructuredChunker**
 
-In `languages.go`, find the block near the bottom that creates `data` and wires YAML/JSON:
+In `languages.go`, find the block near the bottom that creates `data` and wires
+YAML/JSON:
 
 ```go
 // BEFORE (around line 161-185):
@@ -520,7 +544,8 @@ return map[string]Chunker{
 }
 ```
 
-Also add the import `"github.com/aeneasr/agent-index/internal/config"` to the import block in `languages.go`.
+Also add the import `"github.com/aeneasr/agent-index/internal/config"` to the
+import block in `languages.go`.
 
 **Step 2: Build and run all unit tests**
 
@@ -542,7 +567,8 @@ git commit -m "feat: wire StructuredChunker into DefaultLanguages for yaml/yml/j
 
 ## Task 5: Delete stale YAML/JSON snapshots
 
-The YAML and JSON E2E snapshots were already deleted earlier (they were stale from the old DataChunker). Confirm they are gone:
+The YAML and JSON E2E snapshots were already deleted earlier (they were stale
+from the old DataChunker). Confirm they are gone:
 
 ```bash
 ls testdata/snapshots/ | grep -E "YAML|JSON"
@@ -592,9 +618,12 @@ cat testdata/snapshots/TestLang_YAML-Kubernetes_deployment_replicas
 ```
 
 Expected output (approximately):
+
 - Fewer than 30 results from `kube-prometheus-stack-values.yaml`
-- Results should show distinct dotted paths like `grafana`, `prometheus`, `alertmanager`
-- `Symbol` column shows dotted paths (e.g., `grafana.ingress`, `prometheus.alertmanager`)
+- Results should show distinct dotted paths like `grafana`, `prometheus`,
+  `alertmanager`
+- `Symbol` column shows dotted paths (e.g., `grafana.ingress`,
+  `prometheus.alertmanager`)
 - `Kind` column shows `(section)`
 
 **Step 4: Commit the new snapshots**
@@ -612,17 +641,22 @@ git commit -m "test: regenerate YAML and JSON snapshots with StructuredChunker o
 go test -tags e2e ./... -v 2>&1 | tail -50
 ```
 
-Expected: all tests pass. If snapshot tests for YAML/JSON fail because snapshots don't match, run `UPDATE_SNAPSHOTS=true` again and review the diff to confirm the new output is better than the old.
+Expected: all tests pass. If snapshot tests for YAML/JSON fail because snapshots
+don't match, run `UPDATE_SNAPSHOTS=true` again and review the diff to confirm
+the new output is better than the old.
 
 ---
 
 ## Task 8: Update the analysis document
 
-Update `docs/plans/2026-02-28-snapshot-analysis.md` — the "Changes Implemented" section — to reflect:
+Update `docs/plans/2026-02-28-snapshot-analysis.md` — the "Changes Implemented"
+section — to reflect:
 
 1. `StructuredChunker` implemented (recursive YAML/JSON key-hierarchy splitting)
-2. `DataChunker` superseded for `.yaml`/`.yml`/`.json` (still exists for isolated use)
-3. Patterns 2, 3, 4 addressed by StructuredChunker (fewer distinct chunks per file)
+2. `DataChunker` superseded for `.yaml`/`.yml`/`.json` (still exists for
+   isolated use)
+3. Patterns 2, 3, 4 addressed by StructuredChunker (fewer distinct chunks per
+   file)
 
 ```bash
 git add docs/plans/2026-02-28-snapshot-analysis.md
@@ -638,5 +672,9 @@ git commit -m "docs: update snapshot analysis to reflect StructuredChunker imple
 - [ ] `go test ./...` (unit + integration) all pass
 - [ ] `go test -tags e2e -run TestLang_YAML ...` passes with new snapshots
 - [ ] `go test -tags e2e -run TestLang_JSON ...` passes with new snapshots
-- [ ] YAML "Kubernetes deployment replicas" snapshot shows `kube-prometheus-stack-values.yaml` chunks with dotted-path symbols, fewer results from single file
-- [ ] JSON "TypeScript compiler options" snapshot shows `root[N/M] (document)` or key-split results (tsconfig.json still missing — that's a separate issue)
+- [ ] YAML "Kubernetes deployment replicas" snapshot shows
+      `kube-prometheus-stack-values.yaml` chunks with dotted-path symbols, fewer
+      results from single file
+- [ ] JSON "TypeScript compiler options" snapshot shows `root[N/M] (document)`
+      or key-split results (tsconfig.json still missing — that's a separate
+      issue)

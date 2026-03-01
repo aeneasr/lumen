@@ -1,8 +1,6 @@
 {
   "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
+  "workspaces": ["packages/*"],
   "devDependencies": {
     "@babel/cli": "^7.10.5",
     "@babel/code-frame": "^7.10.4",

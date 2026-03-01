@@ -123,9 +123,7 @@
     "*.{js,cjs,mjs,ts,cts,mts}": [
       "eslint --format=codeframe --cache --cache-strategy=content --flag unstable_native_nodejs_ts_config"
     ],
-    "*": [
-      "prettier --write --ignore-unknown"
-    ]
+    "*": ["prettier --write --ignore-unknown"]
   },
   "changelog": {
     "repo": "babel/babel",

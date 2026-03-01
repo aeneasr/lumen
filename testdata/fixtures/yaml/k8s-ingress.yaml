@@ -7,24 +7,24 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: example.com
-    http:
-      paths:
-      - path: /api
-        pathType: Prefix
-        backend:
-          service:
-            name: api-service
-            port:
-              number: 8080
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend-service
-            port:
-              number: 80
+    - host: example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80
   tls:
-  - hosts:
-    - example.com
-    secretName: example-tls
+    - hosts:
+        - example.com
+      secretName: example-tls

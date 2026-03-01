@@ -26,8 +26,8 @@ import (
 	"strings"
 	"testing"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/aeneasr/agent-index/internal/config"
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -435,10 +435,10 @@ func TestE2E_CLI_SQLVerifySchema(t *testing.T) {
 
 	// --- Verify specific known symbols exist ---
 	knownSymbols := map[string]string{
-		"ValidateToken": "function",
-		"HandleHealth":  "function",
-		"QueryUsers":    "function",
-		"User":          "type",
+		"ValidateToken":  "function",
+		"HandleHealth":   "function",
+		"QueryUsers":     "function",
+		"User":           "type",
 		"UserRepository": "interface",
 	}
 	for symbol, expectedKind := range knownSymbols {

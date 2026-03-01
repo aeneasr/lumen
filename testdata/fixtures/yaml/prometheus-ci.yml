@@ -42,12 +42,14 @@ jobs:
       - uses: prometheus/promci@fc721ff8497a70a93a881cd552b71af7fb3a9d53 # v0.5.4
       - uses: ./.github/promci/actions/setup_environment
       - run: go test --tags=dedupelabels ./...
-      - run: go test --tags=slicelabels -race ./cmd/prometheus ./model/textparse ./prompb/...
+      - run:
+          go test --tags=slicelabels -race ./cmd/prometheus ./model/textparse
+          ./prompb/...
       - run: go test --tags=forcedirectio -race ./tsdb/
       - run: GOARCH=386 go test ./...
       - uses: ./.github/promci/actions/check_proto
         with:
-          version: "3.15.8"
+          version: '3.15.8'
 
   test_go_oldest:
     name: Go tests with previous Go version
@@ -144,7 +146,7 @@ jobs:
       # are executed against the ./cmd/prometheus main package.
       - run: go test -skip ${SKIP_TESTS} -v --tags=compliance ./compliance/...
         env:
-          SKIP_TESTS: "TestRemoteWriteSender/prometheus/samples/rw2/start_timestamp*" # TODO(bwplotka): PROM-60
+          SKIP_TESTS: 'TestRemoteWriteSender/prometheus/samples/rw2/start_timestamp*' # TODO(bwplotka): PROM-60
 
   build:
     name: Build Prometheus for common architectures
@@ -159,7 +161,7 @@ jobs:
       !(github.event_name == 'push' && github.event.ref == 'refs/heads/main')
     strategy:
       matrix:
-        thread: [ 0, 1, 2 ]
+        thread: [0, 1, 2]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -167,7 +169,9 @@ jobs:
       - uses: prometheus/promci@fc721ff8497a70a93a881cd552b71af7fb3a9d53 # v0.5.4
       - uses: ./.github/promci/actions/build
         with:
-          promu_opts: "-p linux/amd64 -p windows/amd64 -p linux/arm64 -p darwin/amd64 -p darwin/arm64 -p linux/386"
+          promu_opts:
+            '-p linux/amd64 -p windows/amd64 -p linux/arm64 -p darwin/amd64 -p
+            darwin/arm64 -p linux/386'
           parallelism: 3
           thread: ${{ matrix.thread }}
   build_all:
@@ -183,7 +187,7 @@ jobs:
       (github.event_name == 'push' && github.event.ref == 'refs/heads/main')
     strategy:
       matrix:
-        thread: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 ]
+        thread: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
     # Whenever the Go version is updated here, .promu.yml
     # should also be updated.
@@ -211,13 +215,19 @@ jobs:
     # And skipped is treated as success https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborat[…]n-repositories-with-code-quality-features/about-status-checks
     # Adding always ensures that the status check is run independently of the
     # results of Build All
-    if: always() && github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'release-')
+    if:
+      always() && github.event_name == 'pull_request' &&
+      startsWith(github.event.pull_request.base.ref, 'release-')
     steps:
       - name: Successful build
-        if: ${{ !(contains(needs.*.result, 'failure')) && !(contains(needs.*.result, 'cancelled')) }}
+        if:
+          ${{ !(contains(needs.*.result, 'failure')) &&
+          !(contains(needs.*.result, 'cancelled')) }}
         run: exit 0
       - name: Failing or cancelled build
-        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        if:
+          ${{ contains(needs.*.result, 'failure') || contains(needs.*.result,
+          'cancelled') }}
         run: exit 1
   check_generated_parser:
     # Checks generated parser and UI functions list. Not renaming as it is a required check.
@@ -253,7 +263,8 @@ jobs:
         if: github.repository == 'prometheus/snmp_exporter'
       - name: Get golangci-lint version
         id: golangci-lint-version
-        run: echo "version=$(make print-golangci-lint-version)" >> $GITHUB_OUTPUT
+        run:
+          echo "version=$(make print-golangci-lint-version)" >> $GITHUB_OUTPUT
       - name: Lint
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
@@ -287,7 +298,17 @@ jobs:
   publish_main:
     name: Publish main branch artifacts
     runs-on: ubuntu-latest
-    needs: [test_ui, test_go, test_go_more, test_go_oldest, test_windows, golangci, codeql, build_all]
+    needs:
+      [
+        test_ui,
+        test_go,
+        test_go_more,
+        test_go_oldest,
+        test_windows,
+        golangci,
+        codeql,
+        build_all,
+      ]
     if: github.event_name == 'push' && github.event.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -303,7 +324,17 @@ jobs:
   publish_release:
     name: Publish release artefacts
     runs-on: ubuntu-latest
-    needs: [test_ui, test_go, test_go_more, test_go_oldest, test_windows, golangci, codeql, build_all]
+    needs:
+      [
+        test_ui,
+        test_go,
+        test_go_more,
+        test_go_oldest,
+        test_windows,
+        golangci,
+        codeql,
+        build_all,
+      ]
     if: |
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2.'))
       ||
@@ -333,8 +364,8 @@ jobs:
       - name: Install nodejs
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version-file: "web/ui/.nvmrc"
-          registry-url: "https://registry.npmjs.org"
+          node-version-file: 'web/ui/.nvmrc'
+          registry-url: 'https://registry.npmjs.org'
       - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: ~/.npm
@@ -346,7 +377,9 @@ jobs:
           (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2.'))
           ||
           (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v3.'))
-        run: ./scripts/ui_release.sh --check-package "$(./scripts/get_module_version.sh ${GH_REF_NAME})"
+        run:
+          ./scripts/ui_release.sh --check-package
+          "$(./scripts/get_module_version.sh ${GH_REF_NAME})"
         env:
           GH_REF_NAME: ${{ github.ref_name }}
       - name: build

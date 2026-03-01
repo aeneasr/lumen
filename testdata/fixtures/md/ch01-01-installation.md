@@ -4,8 +4,8 @@ The first step is to install Rust. We’ll download Rust through `rustup`, a
 command line tool for managing Rust versions and associated tools. You’ll need
 an internet connection for the download.
 
-> Note: If you prefer not to use `rustup` for some reason, please see the
-> [Other Rust Installation Methods page][otherinstall] for more options.
+> Note: If you prefer not to use `rustup` for some reason, please see the [Other
+> Rust Installation Methods page][otherinstall] for more options.
 
 The following steps install the latest stable version of the Rust compiler.
 Rust’s stability guarantees ensure that all the examples in the book that
@@ -31,9 +31,9 @@ If you’re using Linux or macOS, open a terminal and enter the following comman
 $ curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 ```
 
-The command downloads a script and starts the installation of the `rustup`
-tool, which installs the latest stable version of Rust. You might be prompted
-for your password. If the install is successful, the following line will appear:
+The command downloads a script and starts the installation of the `rustup` tool,
+which installs the latest stable version of Rust. You might be prompted for your
+password. If the install is successful, the following line will appear:
 
 ```text
 Rust is installed now. Great!
@@ -106,9 +106,9 @@ In Linux and macOS, use:
 $ echo $PATH
 ```
 
-If that’s all correct and Rust still isn’t working, there are a number of
-places you can get help. Find out how to get in touch with other Rustaceans (a
-silly nickname we call ourselves) on [the community page][community].
+If that’s all correct and Rust still isn’t working, there are a number of places
+you can get help. Find out how to get in touch with other Rustaceans (a silly
+nickname we call ourselves) on [the community page][community].
 
 ### Updating and Uninstalling
 
@@ -127,19 +127,21 @@ $ rustup self uninstall
 ```
 
 <!-- Old headings. Do not remove or links may break. -->
+
 <a id="local-documentation"></a>
 
 ### Reading the Local Documentation
 
-The installation of Rust also includes a local copy of the documentation so
-that you can read it offline. Run `rustup doc` to open the local documentation
-in your browser.
+The installation of Rust also includes a local copy of the documentation so that
+you can read it offline. Run `rustup doc` to open the local documentation in
+your browser.
 
 Any time a type or function is provided by the standard library and you’re not
 sure what it does or how to use it, use the application programming interface
 (API) documentation to find out!
 
 <!-- Old headings. Do not remove or links may break. -->
+
 <a id="text-editors-and-integrated-development-environments"></a>
 
 ### Using Text Editors and IDEs
@@ -170,7 +172,8 @@ download them later. Once you have run this command, you do not need to keep the
 `--offline` flag with all `cargo` commands in the rest of the book to use these
 cached versions instead of attempting to use the network.
 
-[otherinstall]: https://forge.rust-lang.org/infra/other-installation-methods.html
+[otherinstall]:
+  https://forge.rust-lang.org/infra/other-installation-methods.html
 [install]: https://www.rust-lang.org/tools/install
 [msvc]: https://rust-lang.github.io/rustup/installation/windows-msvc.html
 [community]: https://www.rust-lang.org/community

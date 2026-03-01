@@ -1,16 +1,20 @@
 ---
 title: Project structure and organization
 nav_title: Project Structure
-description: Learn the folder and file conventions in Next.js, and how to organize your project.
+description:
+  Learn the folder and file conventions in Next.js, and how to organize your
+  project.
 ---
 
-This page provides an overview of **all** the folder and file conventions in Next.js, and recommendations for organizing your project.
+This page provides an overview of **all** the folder and file conventions in
+Next.js, and recommendations for organizing your project.
 
 ## Folder and file conventions
 
 ### Top-level folders
 
-Top-level folders are used to organize your application's code and static assets.
+Top-level folders are used to organize your application's code and static
+assets.
 
 <Image
   alt="Route segments to path segments"
@@ -29,7 +33,8 @@ Top-level folders are used to organize your application's code and static assets
 
 ### Top-level files
 
-Top-level files are used to configure your application, manage dependencies, run proxy, integrate monitoring tools, and define environment variables.
+Top-level files are used to configure your application, manage dependencies, run
+proxy, integrate monitoring tools, and define environment variables.
 
 |                                                                              |                                                                                    |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -52,7 +57,9 @@ Top-level files are used to configure your application, manage dependencies, run
 
 ### Routing Files
 
-Add `page` to expose a route, `layout` for shared UI such as header, nav, or footer, `loading` for skeletons, `error` for error boundaries, and `route` for APIs.
+Add `page` to expose a route, `layout` for shared UI such as header, nav, or
+footer, `loading` for skeletons, `error` for error boundaries, and `route` for
+APIs.
 
 |                                                                               |                     |                              |
 | ----------------------------------------------------------------------------- | ------------------- | ---------------------------- |
@@ -68,7 +75,9 @@ Add `page` to expose a route, `layout` for shared UI such as header, nav, or foo
 
 ### Nested routes
 
-Folders define URL segments. Nesting folders nests segments. Layouts at any level wrap their child segments. A route becomes public when a `page` or `route` file exists.
+Folders define URL segments. Nesting folders nests segments. Layouts at any
+level wrap their child segments. A route becomes public when a `page` or `route`
+file exists.
 
 | Path                        | URL pattern     | Notes                         |
 | --------------------------- | --------------- | ----------------------------- |
@@ -80,7 +89,10 @@ Folders define URL segments. Nesting folders nests segments. Layouts at any leve
 
 ### Dynamic routes
 
-Parameterize segments with square brackets. Use `[segment]` for a single param, `[...segment]` for catch‑all, and `[[...segment]]` for optional catch‑all. Access values via the [`params`](/docs/app/api-reference/file-conventions/page#params-optional) prop.
+Parameterize segments with square brackets. Use `[segment]` for a single param,
+`[...segment]` for catch‑all, and `[[...segment]]` for optional catch‑all.
+Access values via the
+[`params`](/docs/app/api-reference/file-conventions/page#params-optional) prop.
 
 | Path                            | URL pattern                                                          |
 | ------------------------------- | -------------------------------------------------------------------- |
@@ -90,7 +102,10 @@ Parameterize segments with square brackets. Use `[segment]` for a single param, 
 
 ### Route groups and private folders
 
-Organize code without changing URLs with route groups [`(group)`](/docs/app/api-reference/file-conventions/route-groups#convention), and colocate non-routable files with private folders [`_folder`](#private-folders).
+Organize code without changing URLs with route groups
+[`(group)`](/docs/app/api-reference/file-conventions/route-groups#convention),
+and colocate non-routable files with private folders
+[`_folder`](#private-folders).
 
 | Path                            | URL pattern | Notes                                     |
 | ------------------------------- | ----------- | ----------------------------------------- |
@@ -101,9 +116,12 @@ Organize code without changing URLs with route groups [`(group)`](/docs/app/api-
 
 ### Parallel and Intercepted Routes
 
-These features fit specific UI patterns, such as slot-based layouts or modal routing.
+These features fit specific UI patterns, such as slot-based layouts or modal
+routing.
 
-Use `@slot` for named slots rendered by a parent layout. Use intercept patterns to render another route inside the current layout without changing the URL, for example, to show a details view as a modal over a list.
+Use `@slot` for named slots rendered by a parent layout. Use intercept patterns
+to render another route inside the current layout without changing the URL, for
+example, to show a details view as a modal over a list.
 
 | Pattern (docs)                                                                              | Meaning              | Typical use case                         |
 | ------------------------------------------------------------------------------------------- | -------------------- | ---------------------------------------- |
@@ -187,7 +205,8 @@ Use `@slot` for named slots rendered by a parent layout. Use intercept patterns 
 
 ## Organizing your project
 
-Next.js is **unopinionated** about how you organize and colocate your project files. But it does provide several features to help you organize your project.
+Next.js is **unopinionated** about how you organize and colocate your project
+files. But it does provide several features to help you organize your project.
 
 ### Component hierarchy
 
@@ -208,7 +227,9 @@ The components defined in special files are rendered in a specific hierarchy:
   height="643"
 />
 
-The components are rendered recursively in nested routes, meaning the components of a route segment will be nested **inside** the components of its parent segment.
+The components are rendered recursively in nested routes, meaning the components
+of a route segment will be nested **inside** the components of its parent
+segment.
 
 <Image
   alt="Nested File Conventions Component Hierarchy"
@@ -220,9 +241,13 @@ The components are rendered recursively in nested routes, meaning the components
 
 ### Colocation
 
-In the `app` directory, nested folders define route structure. Each folder represents a route segment that is mapped to a corresponding segment in a URL path.
+In the `app` directory, nested folders define route structure. Each folder
+represents a route segment that is mapped to a corresponding segment in a URL
+path.
 
-However, even though route structure is defined through folders, a route is **not publicly accessible** until a `page.js` or `route.js` file is added to a route segment.
+However, even though route structure is defined through folders, a route is
+**not publicly accessible** until a `page.js` or `route.js` file is added to a
+route segment.
 
 <Image
   alt="A diagram showing how a route is not publicly accessible until a page.js or route.js file is added to a route segment."
@@ -232,7 +257,8 @@ However, even though route structure is defined through folders, a route is **no
   height="444"
 />
 
-And, even when a route is made publicly accessible, only the **content returned** by `page.js` or `route.js` is sent to the client.
+And, even when a route is made publicly accessible, only the **content
+returned** by `page.js` or `route.js` is sent to the client.
 
 <Image
   alt="A diagram showing how page.js and route.js files make routes publicly accessible."
@@ -242,7 +268,8 @@ And, even when a route is made publicly accessible, only the **content returned*
   height="687"
 />
 
-This means that **project files** can be **safely colocated** inside route segments in the `app` directory without accidentally being routable.
+This means that **project files** can be **safely colocated** inside route
+segments in the `app` directory without accidentally being routable.
 
 <Image
   alt="A diagram showing colocated project files are not routable even when a segment contains a page.js or route.js file."
@@ -252,13 +279,18 @@ This means that **project files** can be **safely colocated** inside route segme
   height="1011"
 />
 
-> **Good to know**: While you **can** colocate your project files in `app` you don't **have** to. If you prefer, you can [keep them outside the `app` directory](#store-project-files-outside-of-app).
+> **Good to know**: While you **can** colocate your project files in `app` you
+> don't **have** to. If you prefer, you can
+> [keep them outside the `app` directory](#store-project-files-outside-of-app).
 
 ### Private folders
 
-Private folders can be created by prefixing a folder with an underscore: `_folderName`
+Private folders can be created by prefixing a folder with an underscore:
+`_folderName`
 
-This indicates the folder is a private implementation detail and should not be considered by the routing system, thereby **opting the folder and all its subfolders** out of routing.
+This indicates the folder is a private implementation detail and should not be
+considered by the routing system, thereby **opting the folder and all its
+subfolders** out of routing.
 
 <Image
   alt="An example folder structure using private folders"
@@ -268,24 +300,33 @@ This indicates the folder is a private implementation detail and should not be c
   height="849"
 />
 
-Since files in the `app` directory can be [safely colocated by default](#colocation), private folders are not required for colocation. However, they can be useful for:
+Since files in the `app` directory can be
+[safely colocated by default](#colocation), private folders are not required for
+colocation. However, they can be useful for:
 
 - Separating UI logic from routing logic.
-- Consistently organizing internal files across a project and the Next.js ecosystem.
+- Consistently organizing internal files across a project and the Next.js
+  ecosystem.
 - Sorting and grouping files in code editors.
 - Avoiding potential naming conflicts with future Next.js file conventions.
 
 > **Good to know**:
 >
-> - While not a framework convention, you might also consider marking files outside private folders as "private" using the same underscore pattern.
-> - You can create URL segments that start with an underscore by prefixing the folder name with `%5F` (the URL-encoded form of an underscore): `%5FfolderName`.
-> - If you don't use private folders, it would be helpful to know Next.js [special file conventions](/docs/app/getting-started/project-structure#routing-files) to prevent unexpected naming conflicts.
+> - While not a framework convention, you might also consider marking files
+>   outside private folders as "private" using the same underscore pattern.
+> - You can create URL segments that start with an underscore by prefixing the
+>   folder name with `%5F` (the URL-encoded form of an underscore):
+>   `%5FfolderName`.
+> - If you don't use private folders, it would be helpful to know Next.js
+>   [special file conventions](/docs/app/getting-started/project-structure#routing-files)
+>   to prevent unexpected naming conflicts.
 
 ### Route groups
 
 Route groups can be created by wrapping a folder in parenthesis: `(folderName)`
 
-This indicates the folder is for organizational purposes and should **not be included** in the route's URL path.
+This indicates the folder is for organizational purposes and should **not be
+included** in the route's URL path.
 
 <Image
   alt="An example folder structure using route groups"
@@ -297,14 +338,18 @@ This indicates the folder is for organizational purposes and should **not be inc
 
 Route groups are useful for:
 
-- Organizing routes by site section, intent, or team. e.g. marketing pages, admin pages, etc.
+- Organizing routes by site section, intent, or team. e.g. marketing pages,
+  admin pages, etc.
 - Enabling nested layouts in the same route segment level:
   - [Creating multiple nested layouts in the same segment, including multiple root layouts](#creating-multiple-root-layouts)
   - [Adding a layout to a subset of routes in a common segment](#opting-specific-segments-into-a-layout)
 
 ### `src` folder
 
-Next.js supports storing application code (including `app`) inside an optional [`src` folder](/docs/app/api-reference/file-conventions/src-folder). This separates application code from project configuration files which mostly live in the root of a project.
+Next.js supports storing application code (including `app`) inside an optional
+[`src` folder](/docs/app/api-reference/file-conventions/src-folder). This
+separates application code from project configuration files which mostly live in
+the root of a project.
 
 <Image
   alt="An example folder structure with the `src` folder"
@@ -316,13 +361,19 @@ Next.js supports storing application code (including `app`) inside an optional [
 
 ## Examples
 
-The following section lists a very high-level overview of common strategies. The simplest takeaway is to choose a strategy that works for you and your team and be consistent across the project.
+The following section lists a very high-level overview of common strategies. The
+simplest takeaway is to choose a strategy that works for you and your team and
+be consistent across the project.
 
-> **Good to know**: In our examples below, we're using `components` and `lib` folders as generalized placeholders, their naming has no special framework significance and your projects might use other folders like `ui`, `utils`, `hooks`, `styles`, etc.
+> **Good to know**: In our examples below, we're using `components` and `lib`
+> folders as generalized placeholders, their naming has no special framework
+> significance and your projects might use other folders like `ui`, `utils`,
+> `hooks`, `styles`, etc.
 
 ### Store project files outside of `app`
 
-This strategy stores all application code in shared folders in the **root of your project** and keeps the `app` directory purely for routing purposes.
+This strategy stores all application code in shared folders in the **root of
+your project** and keeps the `app` directory purely for routing purposes.
 
 <Image
   alt="An example folder structure with project files outside of app"
@@ -334,7 +385,8 @@ This strategy stores all application code in shared folders in the **root of you
 
 ### Store project files in top-level folders inside of `app`
 
-This strategy stores all application code in shared folders in the **root of the `app` directory**.
+This strategy stores all application code in shared folders in the **root of the
+`app` directory**.
 
 <Image
   alt="An example folder structure with project files inside app"
@@ -346,7 +398,9 @@ This strategy stores all application code in shared folders in the **root of the
 
 ### Split project files by feature or route
 
-This strategy stores globally shared application code in the root `app` directory and **splits** more specific application code into the route segments that use them.
+This strategy stores globally shared application code in the root `app`
+directory and **splits** more specific application code into the route segments
+that use them.
 
 <Image
   alt="An example folder structure with project files split by feature or route"
@@ -358,7 +412,9 @@ This strategy stores globally shared application code in the root `app` director
 
 ### Organize routes without affecting the URL path
 
-To organize routes without affecting the URL, create a group to keep related routes together. The folders in parenthesis will be omitted from the URL (e.g. `(marketing)` or `(shop)`).
+To organize routes without affecting the URL, create a group to keep related
+routes together. The folders in parenthesis will be omitted from the URL (e.g.
+`(marketing)` or `(shop)`).
 
 <Image
   alt="Organizing Routes with Route Groups"
@@ -368,7 +424,9 @@ To organize routes without affecting the URL, create a group to keep related rou
   height="930"
 />
 
-Even though routes inside `(marketing)` and `(shop)` share the same URL hierarchy, you can create a different layout for each group by adding a `layout.js` file inside their folders.
+Even though routes inside `(marketing)` and `(shop)` share the same URL
+hierarchy, you can create a different layout for each group by adding a
+`layout.js` file inside their folders.
 
 <Image
   alt="Route Groups with Multiple Layouts"
@@ -380,7 +438,10 @@ Even though routes inside `(marketing)` and `(shop)` share the same URL hierarch
 
 ### Opting specific segments into a layout
 
-To opt specific routes into a layout, create a new route group (e.g. `(shop)`) and move the routes that share the same layout into the group (e.g. `account` and `cart`). The routes outside of the group will not share the layout (e.g. `checkout`).
+To opt specific routes into a layout, create a new route group (e.g. `(shop)`)
+and move the routes that share the same layout into the group (e.g. `account`
+and `cart`). The routes outside of the group will not share the layout (e.g.
+`checkout`).
 
 <Image
   alt="Route Groups with Opt-in Layouts"
@@ -392,7 +453,9 @@ To opt specific routes into a layout, create a new route group (e.g. `(shop)`) a
 
 ### Opting for loading skeletons on a specific route
 
-To apply a [loading skeleton](/docs/app/api-reference/file-conventions/loading) via a `loading.js` file to a specific route, create a new route group (e.g., `/(overview)`) and then move your `loading.tsx` inside that route group.
+To apply a [loading skeleton](/docs/app/api-reference/file-conventions/loading)
+via a `loading.js` file to a specific route, create a new route group (e.g.,
+`/(overview)`) and then move your `loading.tsx` inside that route group.
 
 <Image
   alt="Folder structure showing a loading.tsx and a page.tsx inside the route group"
@@ -402,11 +465,17 @@ To apply a [loading skeleton](/docs/app/api-reference/file-conventions/loading) 
   height="444"
 />
 
-Now, the `loading.tsx` file will only apply to your dashboard → overview page instead of all your dashboard pages without affecting the URL path structure.
+Now, the `loading.tsx` file will only apply to your dashboard → overview page
+instead of all your dashboard pages without affecting the URL path structure.
 
 ### Creating multiple root layouts
 
-To create multiple [root layouts](/docs/app/api-reference/file-conventions/layout#root-layout), remove the top-level `layout.js` file, and add a `layout.js` file inside each route group. This is useful for partitioning an application into sections that have a completely different UI or experience. The `<html>` and `<body>` tags need to be added to each root layout.
+To create multiple
+[root layouts](/docs/app/api-reference/file-conventions/layout#root-layout),
+remove the top-level `layout.js` file, and add a `layout.js` file inside each
+route group. This is useful for partitioning an application into sections that
+have a completely different UI or experience. The `<html>` and `<body>` tags
+need to be added to each root layout.
 
 <Image
   alt="Route Groups with Multiple Root Layouts"
@@ -416,6 +485,7 @@ To create multiple [root layouts](/docs/app/api-reference/file-conventions/layou
   height="687"
 />
 
-In the example above, both `(marketing)` and `(shop)` have their own root layout.
+In the example above, both `(marketing)` and `(shop)` have their own root
+layout.
 
 </AppOnly>

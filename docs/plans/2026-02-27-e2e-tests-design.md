@@ -2,23 +2,32 @@
 
 ## Goal
 
-End-to-end tests that exercise the full MCP protocol path: build the binary, launch it as a subprocess, communicate via JSON-RPC over stdin/stdout, index a real Go codebase with a real Ollama instance, and verify semantic search returns meaningful results.
+End-to-end tests that exercise the full MCP protocol path: build the binary,
+launch it as a subprocess, communicate via JSON-RPC over stdin/stdout, index a
+real Go codebase with a real Ollama instance, and verify semantic search returns
+meaningful results.
 
 No mocks, no stubs, no fallbacks.
 
 ## Architecture
 
-- **Transport**: Go MCP SDK `CommandTransport` launches the built binary as a subprocess. Tests use `mcp.Client` to connect and call tools over real stdin/stdout JSON-RPC.
-- **Build tag**: `//go:build e2e` — separate from unit tests and the existing `integration` tag.
+- **Transport**: Go MCP SDK `CommandTransport` launches the built binary as a
+  subprocess. Tests use `mcp.Client` to connect and call tools over real
+  stdin/stdout JSON-RPC.
+- **Build tag**: `//go:build e2e` — separate from unit tests and the existing
+  `integration` tag.
 - **Test file**: `e2e_test.go` in the root package.
-- **CI model**: `all-minilm` (33MB, 384 dimensions) — fast to pull, good enough for semantic assertions.
-- **Isolation**: Each test gets its own temp dir via `XDG_DATA_HOME` so databases don't collide.
+- **CI model**: `all-minilm` (33MB, 384 dimensions) — fast to pull, good enough
+  for semantic assertions.
+- **Isolation**: Each test gets its own temp dir via `XDG_DATA_HOME` so
+  databases don't collide.
 
 ## Test Fixture
 
 `testdata/sample-project/` with ~5 Go files providing semantic variety:
 
-- `auth.go` — authentication functions (ValidateToken, CreateSession, RevokeSession)
+- `auth.go` — authentication functions (ValidateToken, CreateSession,
+  RevokeSession)
 - `handler.go` — HTTP handlers (HandleHealth, HandleListUsers, HandleCreateUser)
 - `models.go` — types and interfaces (User, Session, UserRepository)
 - `database.go` — database operations (QueryUsers, InsertUser, BeginTransaction)
@@ -52,7 +61,9 @@ Each test calls a helper that:
 
 ## Result Parsing
 
-`CallTool` returns `*mcp.CallToolResult` with `Content []mcp.Content`. Our handlers serialize structured output as JSON inside a `TextContent`. Tests unmarshal that back into `SemanticSearchOutput` / `IndexStatusOutput`.
+`CallTool` returns `*mcp.CallToolResult` with `Content []mcp.Content`. Our
+handlers serialize structured output as JSON inside a `TextContent`. Tests
+unmarshal that back into `SemanticSearchOutput` / `IndexStatusOutput`.
 
 Helper function: `callToolJSON[T any](t, session, toolName, args) T`
 
@@ -73,7 +84,7 @@ e2e:
     - uses: actions/checkout@v4
     - uses: actions/setup-go@v5
       with:
-        go-version: "1.26"
+        go-version: '1.26'
         cache: true
     - name: Pull embedding model
       run: curl -s http://localhost:11434/api/pull -d '{"name":"all-minilm"}'
@@ -84,6 +95,7 @@ e2e:
 ## Environment Variables
 
 Per test subprocess:
+
 - `AGENT_INDEX_EMBED_MODEL=all-minilm`
 - `OLLAMA_HOST=http://localhost:11434` (overridable via env for local dev)
 - `XDG_DATA_HOME=<t.TempDir()>`

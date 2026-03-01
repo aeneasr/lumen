@@ -3,9 +3,9 @@
 In most current operating systems, an executed program’s code is run in a
 _process_, and the operating system will manage multiple processes at once.
 Within a program, you can also have independent parts that run simultaneously.
-The features that run these independent parts are called _threads_. For
-example, a web server could have multiple threads so that it can respond to
-more than one request at the same time.
+The features that run these independent parts are called _threads_. For example,
+a web server could have multiple threads so that it can respond to more than one
+request at the same time.
 
 Splitting the computation in your program into multiple threads to run multiple
 tasks at the same time can improve performance, but it also adds complexity.
@@ -20,10 +20,9 @@ to problems, such as:
 - Bugs that only happen in certain situations and are hard to reproduce and fix
   reliably
 
-Rust attempts to mitigate the negative effects of using threads, but
-programming in a multithreaded context still takes careful thought and requires
-a code structure that is different from that in programs running in a single
-thread.
+Rust attempts to mitigate the negative effects of using threads, but programming
+in a multithreaded context still takes careful thought and requires a code
+structure that is different from that in programs running in a single thread.
 
 Programming languages implement threads in a few different ways, and many
 operating systems provide an API the programming language can call for creating
@@ -88,17 +87,17 @@ for the operating system to switch between the threads.
 ### Waiting for All Threads to Finish
 
 The code in Listing 16-1 not only stops the spawned thread prematurely most of
-the time due to the main thread ending, but because there is no guarantee on
-the order in which threads run, we also can’t guarantee that the spawned thread
-will get to run at all!
+the time due to the main thread ending, but because there is no guarantee on the
+order in which threads run, we also can’t guarantee that the spawned thread will
+get to run at all!
 
 We can fix the problem of the spawned thread not running or of it ending
 prematurely by saving the return value of `thread::spawn` in a variable. The
-return type of `thread::spawn` is `JoinHandle<T>`. A `JoinHandle<T>` is an
-owned value that, when we call the `join` method on it, will wait for its
-thread to finish. Listing 16-2 shows how to use the `JoinHandle<T>` of the
-thread we created in Listing 16-1 and how to call `join` to make sure the
-spawned thread finishes before `main` exits.
+return type of `thread::spawn` is `JoinHandle<T>`. A `JoinHandle<T>` is an owned
+value that, when we call the `join` method on it, will wait for its thread to
+finish. Listing 16-2 shows how to use the `JoinHandle<T>` of the thread we
+created in Listing 16-1 and how to call `join` to make sure the spawned thread
+finishes before `main` exits.
 
 <Listing number="16-2" file-name="src/main.rs" caption="Saving a `JoinHandle<T>` from `thread::spawn` to guarantee the thread is run to completion">
 
@@ -137,8 +136,8 @@ hi number 9 from the spawned thread!
 The two threads continue alternating, but the main thread waits because of the
 call to `handle.join()` and does not end until the spawned thread is finished.
 
-But let’s see what happens when we instead move `handle.join()` before the
-`for` loop in `main`, like this:
+But let’s see what happens when we instead move `handle.join()` before the `for`
+loop in `main`, like this:
 
 <Listing file-name="src/main.rs">
 
@@ -184,11 +183,11 @@ another. In [“Capturing References or Moving Ownership”][capture]<!-- ignore
 concentrate more on the interaction between `move` and `thread::spawn`.
 
 Notice in Listing 16-1 that the closure we pass to `thread::spawn` takes no
-arguments: We’re not using any data from the main thread in the spawned
-thread’s code. To use data from the main thread in the spawned thread, the
-spawned thread’s closure must capture the values it needs. Listing 16-3 shows
-an attempt to create a vector in the main thread and use it in the spawned
-thread. However, this won’t work yet, as you’ll see in a moment.
+arguments: We’re not using any data from the main thread in the spawned thread’s
+code. To use data from the main thread in the spawned thread, the spawned
+thread’s closure must capture the values it needs. Listing 16-3 shows an attempt
+to create a vector in the main thread and use it in the spawned thread. However,
+this won’t work yet, as you’ll see in a moment.
 
 <Listing number="16-3" file-name="src/main.rs" caption="Attempting to use a vector created by the main thread in another thread">
 
@@ -246,8 +245,8 @@ help: to force the closure to take ownership of `v` (and any other referenced va
 
 By adding the `move` keyword before the closure, we force the closure to take
 ownership of the values it’s using rather than allowing Rust to infer that it
-should borrow the values. The modification to Listing 16-3 shown in Listing
-16-5 will compile and run as we intend.
+should borrow the values. The modification to Listing 16-3 shown in Listing 16-5
+will compile and run as we intend.
 
 <Listing number="16-5" file-name="src/main.rs" caption="Using the `move` keyword to force a closure to take ownership of the values it uses">
 
@@ -259,10 +258,10 @@ should borrow the values. The modification to Listing 16-3 shown in Listing
 
 We might be tempted to try the same thing to fix the code in Listing 16-4 where
 the main thread called `drop` by using a `move` closure. However, this fix will
-not work because what Listing 16-4 is trying to do is disallowed for a
-different reason. If we added `move` to the closure, we would move `v` into the
-closure’s environment, and we could no longer call `drop` on it in the main
-thread. We would get this compiler error instead:
+not work because what Listing 16-4 is trying to do is disallowed for a different
+reason. If we added `move` to the closure, we would move `v` into the closure’s
+environment, and we could no longer call `drop` on it in the main thread. We
+would get this compiler error instead:
 
 ```console
 {{#include ../listings/ch16-fearless-concurrency/output-only-01-move-drop/output.txt}}

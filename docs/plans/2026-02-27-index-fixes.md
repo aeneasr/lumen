@@ -1,22 +1,34 @@
 # Index Fixes Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to
+> implement this plan task-by-task.
 
-**Goal:** Fix four correctness/quality issues in the indexer and remove dead code: eliminate the double Merkle tree build in EnsureFresh, make Status() DB-only, convert search distance to similarity score, replace custom backoff with a context-aware library, and remove dead fields/methods.
+**Goal:** Fix four correctness/quality issues in the indexer and remove dead
+code: eliminate the double Merkle tree build in EnsureFresh, make Status()
+DB-only, convert search distance to similarity score, replace custom backoff
+with a context-aware library, and remove dead fields/methods.
 
-**Architecture:** All changes are internal; no public MCP API changes except removing `stale_files` from `index_status` output (it was expensive and misleading). Tasks are independent and committable one at a time.
+**Architecture:** All changes are internal; no public MCP API changes except
+removing `stale_files` from `index_status` output (it was expensive and
+misleading). Tasks are independent and committable one at a time.
 
-**Tech Stack:** Go 1.26, `github.com/sethvargo/go-retry` (new dep), existing SQLite/sqlite-vec stack.
+**Tech Stack:** Go 1.26, `github.com/sethvargo/go-retry` (new dep), existing
+SQLite/sqlite-vec stack.
 
 ---
 
 ## Task 1: Eliminate double Merkle tree build in EnsureFresh
 
 **Files:**
+
 - Modify: `internal/index/index.go`
 - Test: `internal/index/index_test.go`
 
-**Background:** `EnsureFresh` builds a Merkle tree to check the root hash, then calls `Index()` which builds the tree again. That is two full parallel file-hash passes when the index is stale. The fix is to extract an unexported `indexWithTree` that accepts an already-built tree, and have both `Index` and `EnsureFresh` call it.
+**Background:** `EnsureFresh` builds a Merkle tree to check the root hash, then
+calls `Index()` which builds the tree again. That is two full parallel file-hash
+passes when the index is stale. The fix is to extract an unexported
+`indexWithTree` that accepts an already-built tree, and have both `Index` and
+`EnsureFresh` call it.
 
 **Step 1: Write a failing test for EnsureFresh behavior**
 
@@ -91,7 +103,8 @@ Expected: FAIL — `TestIndexer_EnsureFresh` does not exist yet (compile error).
 
 **Step 3: Implement `indexWithTree` and update `Index` and `EnsureFresh`**
 
-In `internal/index/index.go`, rename the body of `Index` to a new unexported method `indexWithTree`, then rewrite `Index` and `EnsureFresh` to use it:
+In `internal/index/index.go`, rename the body of `Index` to a new unexported
+method `indexWithTree`, then rewrite `Index` and `EnsureFresh` to use it:
 
 ```go
 // Index indexes the project at projectDir. If force is true, all files are
@@ -260,7 +273,8 @@ func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force 
 }
 ```
 
-Delete the old `Index` body and the old `EnsureFresh` body that called `idx.Index(ctx, projectDir, false)`.
+Delete the old `Index` body and the old `EnsureFresh` body that called
+`idx.Index(ctx, projectDir, false)`.
 
 **Step 4: Run tests**
 
@@ -283,11 +297,17 @@ git commit -m "perf: avoid double Merkle tree build by sharing tree between Ensu
 ## Task 2: Make Status() DB-only — remove filesystem walk
 
 **Files:**
+
 - Modify: `internal/index/index.go` (`indexWithTree`, `Status`)
 - Modify: `main.go` (`IndexStatusOutput`, tool description)
 - Test: `internal/index/index_test.go`
 
-**Background:** `Status()` calls `merkle.BuildTree()` — a full parallel file-hash pass — just to populate `TotalFiles` and `StaleFiles`. Fix: store `total_files` in project_meta at the end of each index run. `Status()` then reads everything from DB. `StaleFiles` is removed: it requires hashing all files to compute accurately, and `semantic_search` already auto-reindexes via `EnsureFresh`.
+**Background:** `Status()` calls `merkle.BuildTree()` — a full parallel
+file-hash pass — just to populate `TotalFiles` and `StaleFiles`. Fix: store
+`total_files` in project_meta at the end of each index run. `Status()` then
+reads everything from DB. `StaleFiles` is removed: it requires hashing all files
+to compute accurately, and `semantic_search` already auto-reindexes via
+`EnsureFresh`.
 
 **Step 1: Update the existing Status test to assert TotalFiles is populated**
 
@@ -333,7 +353,8 @@ func Hello() {}
 go test ./internal/index/... -run TestIndexer_Status -v
 ```
 
-Expected: FAIL — `expected total_files=1, got 0` (TotalFiles not yet stored in metadata).
+Expected: FAIL — `expected total_files=1, got 0` (TotalFiles not yet stored in
+metadata).
 
 **Step 3: Store `total_files` in metadata at end of `indexWithTree`**
 
@@ -441,10 +462,19 @@ git commit -m "perf: make Status() DB-only by storing total_files in metadata, r
 ## Task 3: Fix Score semantics — return similarity not distance
 
 **Files:**
+
 - Modify: `main.go` (mapping layer)
 - Test: `main_test.go`
 
-**Background:** `SearchResultItem.Score` is populated from `store.SearchResult.Distance`, which is cosine *distance* (0 = identical, 2 = opposite). Callers expect higher score = better match. Fix: convert at the mapping layer with `score = 1 - distance`, which gives the standard cosine similarity range of −1 to 1 (in practice 0 to 1 for typical embeddings). Also: the kind-filter subquery in `store.Search` does not have an explicit `ORDER BY`, relying on SQLite's implementation-defined behaviour of preserving inner query order. Add explicit `ORDER BY distance ASC` to guarantee descending-score ordering in all code paths.
+**Background:** `SearchResultItem.Score` is populated from
+`store.SearchResult.Distance`, which is cosine _distance_ (0 = identical, 2 =
+opposite). Callers expect higher score = better match. Fix: convert at the
+mapping layer with `score = 1 - distance`, which gives the standard cosine
+similarity range of −1 to 1 (in practice 0 to 1 for typical embeddings). Also:
+the kind-filter subquery in `store.Search` does not have an explicit `ORDER BY`,
+relying on SQLite's implementation-defined behaviour of preserving inner query
+order. Add explicit `ORDER BY distance ASC` to guarantee descending-score
+ordering in all code paths.
 
 **Step 1: Write a failing test**
 
@@ -469,11 +499,14 @@ func TestScoreIsNotDistance(t *testing.T) {
 }
 ```
 
-This test documents the expected conversion formula. It will pass once we verify the code implements it correctly.
+This test documents the expected conversion formula. It will pass once we verify
+the code implements it correctly.
 
 **Step 2: Fix explicit ordering in `internal/store/store.go`**
 
-In `Search`, the kind-filter path wraps the inner query in a subquery but has no `ORDER BY`. Add one so score ordering is guaranteed regardless of SQLite version:
+In `Search`, the kind-filter path wraps the inner query in a subquery but has no
+`ORDER BY`. Add one so score ordering is guaranteed regardless of SQLite
+version:
 
 ```go
 if kindFilter != "" {
@@ -568,11 +601,16 @@ git commit -m "fix: convert cosine distance to similarity score, explicit ORDER 
 ## Task 4: Replace custom backoff with `go-retry` (context-aware)
 
 **Files:**
+
 - Modify: `go.mod` and `go.sum` (new dependency)
 - Modify: `internal/embedder/ollama.go`
 - Test: `internal/embedder/ollama_test.go`
 
-**Background:** The custom `backoff()` function calls `time.Sleep`, which does not respect context cancellation. If the context is cancelled mid-retry, the embedder continues sleeping for up to 400ms before noticing. `github.com/sethvargo/go-retry` provides context-aware exponential backoff with clean `retry.RetryableError` semantics.
+**Background:** The custom `backoff()` function calls `time.Sleep`, which does
+not respect context cancellation. If the context is cancelled mid-retry, the
+embedder continues sleeping for up to 400ms before noticing.
+`github.com/sethvargo/go-retry` provides context-aware exponential backoff with
+clean `retry.RetryableError` semantics.
 
 **Step 1: Write a failing test for context cancellation**
 
@@ -612,7 +650,8 @@ func TestOllama_Embed_ContextCancelledStopsRetry(t *testing.T) {
 go test ./internal/embedder/... -run TestOllama_Embed_ContextCancelledStopsRetry -v
 ```
 
-Expected: FAIL — the test takes longer than 200ms because `time.Sleep` ignores context cancellation.
+Expected: FAIL — the test takes longer than 200ms because `time.Sleep` ignores
+context cancellation.
 
 **Step 3: Add the dependency**
 
@@ -630,7 +669,8 @@ Expected: `github.com/sethvargo/go-retry v0.x.x`
 
 **Step 4: Rewrite `embedBatch` in `internal/embedder/ollama.go`**
 
-Add `"github.com/sethvargo/go-retry"` to imports. Remove the `backoff` helper function entirely.
+Add `"github.com/sethvargo/go-retry"` to imports. Remove the `backoff` helper
+function entirely.
 
 Replace the `embedBatch` function:
 
@@ -686,11 +726,15 @@ func (o *Ollama) embedBatch(ctx context.Context, texts []string) ([][]float32, e
 }
 ```
 
-Note: `retry.WithMaxRetries(ollamaMaxRetries-1, b)` means `ollamaMaxRetries-1` retries after the first attempt, for `ollamaMaxRetries` total attempts — matching the existing behavior (constant is 3, so 3 total attempts).
+Note: `retry.WithMaxRetries(ollamaMaxRetries-1, b)` means `ollamaMaxRetries-1`
+retries after the first attempt, for `ollamaMaxRetries` total attempts —
+matching the existing behavior (constant is 3, so 3 total attempts).
 
 Delete the `backoff` function at the bottom of `ollama.go`.
 
-Remove `"time"` from imports only if it is no longer used (it is still used for `120 * time.Second` in `NewOllama` and `100 * time.Millisecond` in `embedBatch`).
+Remove `"time"` from imports only if it is no longer used (it is still used for
+`120 * time.Second` in `NewOllama` and `100 * time.Millisecond` in
+`embedBatch`).
 
 **Step 5: Run tests**
 
@@ -713,15 +757,19 @@ git commit -m "fix: replace custom time.Sleep backoff with go-retry for context-
 ## Task 5: Remove dead code — Tree.Dirs, Chunk.Language, Chunker.Supports
 
 **Files:**
+
 - Modify: `internal/merkle/merkle.go`
 - Modify: `internal/chunker/chunker.go`
 - Modify: `internal/chunker/goast.go`
 - Test: run existing tests to confirm nothing breaks
 
 **Background:** Three dead pieces:
+
 1. `Tree.Dirs` — field declared in the struct, never assigned, never read.
-2. `Chunk.Language` — always hardcoded to `"go"` in `makeChunk`, never stored in DB, never read after chunking.
-3. `Chunker.Supports(language string) bool` — defined in the interface, implemented in `GoAST`, called nowhere in the codebase.
+2. `Chunk.Language` — always hardcoded to `"go"` in `makeChunk`, never stored in
+   DB, never read after chunking.
+3. `Chunker.Supports(language string) bool` — defined in the interface,
+   implemented in `GoAST`, called nowhere in the codebase.
 
 **Step 1: Remove `Tree.Dirs` from `internal/merkle/merkle.go`**
 
@@ -744,7 +792,8 @@ type Tree struct {
 }
 ```
 
-In `BuildTree`, remove the line `Dirs: make(map[string]string),` from the `tree` literal:
+In `BuildTree`, remove the line `Dirs: make(map[string]string),` from the `tree`
+literal:
 
 ```go
 tree := &Tree{
@@ -752,7 +801,8 @@ tree := &Tree{
 }
 ```
 
-**Step 2: Remove `Chunk.Language` from `internal/chunker/chunker.go` and `goast.go`**
+**Step 2: Remove `Chunk.Language` from `internal/chunker/chunker.go` and
+`goast.go`**
 
 In `chunker.go`, change `Chunk` from:
 
@@ -783,7 +833,8 @@ type Chunk struct {
 }
 ```
 
-In `goast.go`, in `makeChunk`, remove the `Language: "go",` line from the returned `Chunk` literal:
+In `goast.go`, in `makeChunk`, remove the `Language: "go",` line from the
+returned `Chunk` literal:
 
 ```go
 func makeChunk(filePath, symbol, kind string, startLine, endLine int, content string) Chunk {
@@ -801,7 +852,8 @@ func makeChunk(filePath, symbol, kind string, startLine, endLine int, content st
 }
 ```
 
-**Step 3: Remove `Chunker.Supports` from `internal/chunker/chunker.go` and `goast.go`**
+**Step 3: Remove `Chunker.Supports` from `internal/chunker/chunker.go` and
+`goast.go`**
 
 In `chunker.go`, change the `Chunker` interface from:
 

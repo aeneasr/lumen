@@ -19,7 +19,9 @@ permissions:
 # Cancel in progress workflows
 # in the scenario where we already had a run going for that PR/branch/tag but then triggered a new run
 concurrency:
-  group: "${{ github.workflow }} ✨ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}"
+  group:
+    '${{ github.workflow }} ✨ ${{ github.event.pull_request.head.label ||
+    github.head_ref || github.ref }}'
   cancel-in-progress: true
 
 jobs:
@@ -109,7 +111,9 @@ jobs:
 
       - name: Merge coverage reports
         shell: bash
-        run: find ./coverage -name lcov.info -exec printf '-a %q\n' {} \; | xargs lcov -o ./lcov.info
+        run:
+          find ./coverage -name lcov.info -exec printf '-a %q\n' {} \; | xargs
+          lcov -o ./lcov.info
 
       - name: Upload coverage report
         uses: coverallsapp/github-action@5cbfd81b66ca5d10c19b062c04de0199c215fb6e # v2.3.7

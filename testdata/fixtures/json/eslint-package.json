@@ -33,18 +33,10 @@
   },
   "typesVersions": {
     "*": {
-      "use-at-your-own-risk": [
-        "./lib/types/use-at-your-own-risk.d.ts"
-      ],
-      "rules": [
-        "./lib/types/rules.d.ts"
-      ],
-      "universal": [
-        "./lib/types/universal.d.ts"
-      ],
-      "config": [
-        "./lib/types/config-api.d.ts"
-      ]
+      "use-at-your-own-risk": ["./lib/types/use-at-your-own-risk.d.ts"],
+      "rules": ["./lib/types/rules.d.ts"],
+      "universal": ["./lib/types/universal.d.ts"],
+      "config": ["./lib/types/config-api.d.ts"]
     }
   },
   "scripts": {
@@ -93,14 +85,7 @@
       "git add docs/src/_data/further_reading_links.json"
     ]
   },
-  "files": [
-    "LICENSE",
-    "README.md",
-    "bin",
-    "conf",
-    "lib",
-    "messages"
-  ],
+  "files": ["LICENSE", "README.md", "bin", "conf", "lib", "messages"],
   "repository": "eslint/eslint",
   "funding": "https://eslint.org/donate",
   "homepage": "https://eslint.org",
@@ -206,13 +191,7 @@
       "optional": true
     }
   },
-  "keywords": [
-    "ast",
-    "lint",
-    "javascript",
-    "ecmascript",
-    "espree"
-  ],
+  "keywords": ["ast", "lint", "javascript", "ecmascript", "espree"],
   "license": "MIT",
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24"
