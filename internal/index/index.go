@@ -1,3 +1,17 @@
+// Copyright 2026 Aeneas Rekkas
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package index orchestrates chunking, embedding, and storage for code indexes.
 package index
 
@@ -15,6 +29,11 @@ import (
 	"github.com/aeneasr/agent-index/internal/merkle"
 	"github.com/aeneasr/agent-index/internal/store"
 )
+
+// ProgressFunc is an optional callback for reporting indexing progress.
+// current is the number of items processed so far, total is the total number
+// of items (0 if unknown), and message describes the current step.
+type ProgressFunc func(current, total int, message string)
 
 // IndexStats holds statistics from an indexing run.
 type IndexStats struct {
@@ -36,22 +55,25 @@ type StatusInfo struct {
 
 // Indexer orchestrates chunking, embedding, and storage for a code index.
 type Indexer struct {
-	store   *store.Store
-	emb     embedder.Embedder
-	chunker chunker.Chunker
+	store          *store.Store
+	emb            embedder.Embedder
+	chunker        chunker.Chunker
+	maxChunkTokens int
 }
 
 // NewIndexer creates a new Indexer backed by a SQLite store at dsn,
-// using the given embedder for vector generation.
-func NewIndexer(dsn string, emb embedder.Embedder) (*Indexer, error) {
+// using the given embedder for vector generation. maxChunkTokens controls
+// the maximum estimated token count per chunk before splitting; 0 disables splitting.
+func NewIndexer(dsn string, emb embedder.Embedder, maxChunkTokens int) (*Indexer, error) {
 	s, err := store.New(dsn, emb.Dimensions())
 	if err != nil {
 		return nil, fmt.Errorf("create store: %w", err)
 	}
 	return &Indexer{
-		store:   s,
-		emb:     emb,
-		chunker: chunker.NewMultiChunker(chunker.DefaultLanguages()),
+		store:          s,
+		emb:            emb,
+		chunker:        chunker.NewMultiChunker(chunker.DefaultLanguages()),
+		maxChunkTokens: maxChunkTokens,
 	}, nil
 }
 
@@ -62,7 +84,7 @@ func (idx *Indexer) Close() error {
 
 // Index indexes the project at projectDir. If force is true, all files are
 // re-indexed regardless of whether they have changed.
-func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool) (IndexStats, error) {
+func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool, progress ProgressFunc) (IndexStats, error) {
 	curTree, err := merkle.BuildTree(projectDir, merkle.MakeSkip(projectDir, chunker.SupportedExtensions()))
 	if err != nil {
 		return IndexStats{}, fmt.Errorf("build merkle tree: %w", err)
@@ -77,12 +99,12 @@ func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool) (I
 			return IndexStats{}, nil
 		}
 	}
-	return idx.indexWithTree(ctx, projectDir, force, curTree)
+	return idx.indexWithTree(ctx, projectDir, force, curTree, progress)
 }
 
 // EnsureFresh checks if the index is stale and re-indexes if needed.
 // Returns whether a re-index occurred, the stats, and any error.
-func (idx *Indexer) EnsureFresh(ctx context.Context, projectDir string) (bool, IndexStats, error) {
+func (idx *Indexer) EnsureFresh(ctx context.Context, projectDir string, progress ProgressFunc) (bool, IndexStats, error) {
 	curTree, err := merkle.BuildTree(projectDir, merkle.MakeSkip(projectDir, chunker.SupportedExtensions()))
 	if err != nil {
 		return false, IndexStats{}, fmt.Errorf("build merkle tree: %w", err)
@@ -96,7 +118,7 @@ func (idx *Indexer) EnsureFresh(ctx context.Context, projectDir string) (bool, I
 		return false, IndexStats{}, nil
 	}
 
-	stats, err := idx.indexWithTree(ctx, projectDir, false, curTree)
+	stats, err := idx.indexWithTree(ctx, projectDir, false, curTree, progress)
 	if err != nil {
 		return false, stats, err
 	}
@@ -106,7 +128,7 @@ func (idx *Indexer) EnsureFresh(ctx context.Context, projectDir string) (bool, I
 // indexWithTree is the internal implementation of Index that accepts a pre-built
 // merkle tree, so callers that already have one (e.g. EnsureFresh) do not need
 // to build it again.
-func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force bool, curTree *merkle.Tree) (IndexStats, error) {
+func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force bool, curTree *merkle.Tree, progress ProgressFunc) (IndexStats, error) {
 	var stats IndexStats
 
 	stats.TotalFiles = len(curTree.Files)
@@ -133,6 +155,10 @@ func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force 
 
 	stats.FilesChanged = len(filesToIndex) + len(filesToRemove)
 
+	if progress != nil {
+		progress(0, len(filesToIndex), fmt.Sprintf("Found %d files to index", len(filesToIndex)))
+	}
+
 	for _, path := range filesToRemove {
 		if err := idx.store.DeleteFileChunks(path); err != nil {
 			return stats, fmt.Errorf("delete chunks for %s: %w", path, err)
@@ -143,13 +169,13 @@ func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force 
 	var batch []chunker.Chunk
 	var totalChunks int
 
-	flushBatch := func() error {
+	flushBatch := func(fileIdx int) error {
 		if len(batch) == 0 {
 			return nil
 		}
 		texts := make([]string, len(batch))
 		for i, c := range batch {
-			texts[i] = c.Content
+			texts[i] = "// " + c.FilePath + "\n" + c.Content
 		}
 		vectors, err := idx.emb.Embed(ctx, texts)
 		if err != nil {
@@ -160,10 +186,17 @@ func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force 
 		}
 		totalChunks += len(batch)
 		batch = batch[:0]
+		if progress != nil {
+			progress(fileIdx, len(filesToIndex), fmt.Sprintf("Embedded %d chunks so far", totalChunks))
+		}
 		return nil
 	}
 
-	for _, relPath := range filesToIndex {
+	for fileIdx, relPath := range filesToIndex {
+		if progress != nil {
+			progress(fileIdx, len(filesToIndex), fmt.Sprintf("Processing file %d/%d: %s", fileIdx+1, len(filesToIndex), relPath))
+		}
+
 		absPath := filepath.Join(projectDir, relPath)
 		content, err := os.ReadFile(absPath)
 		if err != nil {
@@ -183,17 +216,24 @@ func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force 
 			return stats, fmt.Errorf("chunk %s: %w", relPath, err)
 		}
 
+		chunks = splitOversizedChunks(chunks, idx.maxChunkTokens)
+
 		batch = append(batch, chunks...)
 
 		if len(batch) >= chunkBatchSize {
-			if err := flushBatch(); err != nil {
+			if err := flushBatch(fileIdx + 1); err != nil {
 				return stats, err
 			}
 		}
 	}
 
-	if err := flushBatch(); err != nil {
+	if err := flushBatch(len(filesToIndex)); err != nil {
 		return stats, err
+	}
+
+	if progress != nil && len(filesToIndex) > 0 {
+		progress(len(filesToIndex), len(filesToIndex),
+			fmt.Sprintf("Indexing complete: %d files, %d chunks", len(filesToIndex), totalChunks))
 	}
 
 	stats.IndexedFiles = len(filesToIndex)
@@ -215,9 +255,29 @@ func (idx *Indexer) indexWithTree(ctx context.Context, projectDir string, force 
 	return stats, nil
 }
 
+// IsFresh checks whether the index for projectDir is up to date by comparing
+// the current Merkle tree root hash against the stored one. Returns false if
+// the project has never been indexed (no stored hash).
+func (idx *Indexer) IsFresh(projectDir string) (bool, error) {
+	curTree, err := merkle.BuildTree(projectDir, merkle.MakeSkip(projectDir, chunker.SupportedExtensions()))
+	if err != nil {
+		return false, fmt.Errorf("build merkle tree: %w", err)
+	}
+
+	storedHash, err := idx.store.GetMeta("root_hash")
+	if err != nil && err != sql.ErrNoRows {
+		return false, fmt.Errorf("get root_hash: %w", err)
+	}
+	if storedHash == "" {
+		return false, nil
+	}
+	return storedHash == curTree.RootHash, nil
+}
+
 // Search performs a vector similarity search against the index.
-func (idx *Indexer) Search(ctx context.Context, projectDir string, queryVec []float32, limit int) ([]store.SearchResult, error) {
-	return idx.store.Search(queryVec, limit)
+// If maxDistance > 0, results with distance >= maxDistance are excluded.
+func (idx *Indexer) Search(ctx context.Context, projectDir string, queryVec []float32, limit int, maxDistance float64) ([]store.SearchResult, error) {
+	return idx.store.Search(queryVec, limit, maxDistance)
 }
 
 // Status returns information about the current index state for a project.

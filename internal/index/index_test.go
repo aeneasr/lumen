@@ -1,3 +1,17 @@
+// Copyright 2026 Aeneas Rekkas
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package index
 
 import (
@@ -5,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -49,13 +64,13 @@ func Goodbye(name string) {
 `)
 
 	emb := &mockEmbedder{dims: 4, model: "test-model"}
-	idx, err := NewIndexer(":memory:", emb)
+	idx, err := NewIndexer(":memory:", emb, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = idx.Close() }()
 
-	stats, err := idx.Index(context.Background(), projectDir, false)
+	stats, err := idx.Index(context.Background(), projectDir, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +81,7 @@ func Goodbye(name string) {
 		t.Fatal("expected at least 1 chunk created")
 	}
 
-	results, err := idx.Search(context.Background(), projectDir, []float32{0.1, 0.1, 0.1, 0.1}, 5)
+	results, err := idx.Search(context.Background(), projectDir, []float32{0.1, 0.1, 0.1, 0.1}, 5, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,18 +98,18 @@ func Hello() {}
 `)
 
 	emb := &mockEmbedder{dims: 4, model: "test-model"}
-	idx, err := NewIndexer(":memory:", emb)
+	idx, err := NewIndexer(":memory:", emb, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = idx.Close() }()
 
-	if _, err := idx.Index(context.Background(), projectDir, false); err != nil {
+	if _, err := idx.Index(context.Background(), projectDir, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	firstCallCount := emb.callCount
 
-	stats, err := idx.Index(context.Background(), projectDir, false)
+	stats, err := idx.Index(context.Background(), projectDir, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,13 +129,13 @@ func Hello() {}
 `)
 
 	emb := &mockEmbedder{dims: 4, model: "test-model"}
-	idx, err := NewIndexer(":memory:", emb)
+	idx, err := NewIndexer(":memory:", emb, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = idx.Close() }()
 
-	if _, err := idx.Index(context.Background(), projectDir, false); err != nil {
+	if _, err := idx.Index(context.Background(), projectDir, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	firstCallCount := emb.callCount
@@ -131,7 +146,7 @@ func Hello() {}
 func World() {}
 `)
 
-	stats, err := idx.Index(context.Background(), projectDir, false)
+	stats, err := idx.Index(context.Background(), projectDir, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,18 +166,18 @@ func Hello() {}
 `)
 
 	emb := &mockEmbedder{dims: 4, model: "test-model"}
-	idx, err := NewIndexer(":memory:", emb)
+	idx, err := NewIndexer(":memory:", emb, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = idx.Close() }()
 
-	if _, err := idx.Index(context.Background(), projectDir, false); err != nil {
+	if _, err := idx.Index(context.Background(), projectDir, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	firstCallCount := emb.callCount
 
-	stats, err := idx.Index(context.Background(), projectDir, true)
+	stats, err := idx.Index(context.Background(), projectDir, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,13 +197,13 @@ func Hello() {}
 `)
 
 	emb := &mockEmbedder{dims: 4, model: "test-model"}
-	idx, err := NewIndexer(":memory:", emb)
+	idx, err := NewIndexer(":memory:", emb, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = idx.Close() }()
 
-	if _, err := idx.Index(context.Background(), projectDir, false); err != nil {
+	if _, err := idx.Index(context.Background(), projectDir, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	status, err := idx.Status(projectDir)
@@ -208,8 +223,8 @@ func Hello() {}
 
 func TestIndexer_StreamingBatchesProduceSameChunks(t *testing.T) {
 	projectDir := t.TempDir()
-	// 150 files × ~2 chunks each = ~300 chunks → spans 2 batches of 256.
-	for i := range 150 {
+	// 300 files × 1 function each = 300 chunks → spans 2 batches of 256.
+	for i := range 300 {
 		writeGoFile(t, projectDir, fmt.Sprintf("f%d.go", i), fmt.Sprintf(`package main
 
 func F%d() {}
@@ -217,18 +232,18 @@ func F%d() {}
 	}
 
 	emb := &mockEmbedder{dims: 4, model: "test-model"}
-	idx, err := NewIndexer(":memory:", emb)
+	idx, err := NewIndexer(":memory:", emb, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = idx.Close() }()
 
-	stats, err := idx.Index(context.Background(), projectDir, false)
+	stats, err := idx.Index(context.Background(), projectDir, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats.IndexedFiles != 150 {
-		t.Fatalf("expected 150 indexed files, got %d", stats.IndexedFiles)
+	if stats.IndexedFiles != 300 {
+		t.Fatalf("expected 300 indexed files, got %d", stats.IndexedFiles)
 	}
 	if stats.ChunksCreated == 0 {
 		t.Fatal("expected chunks created")
@@ -247,14 +262,14 @@ func Hello() {}
 `)
 
 	emb := &mockEmbedder{dims: 4, model: "test-model"}
-	idx, err := NewIndexer(":memory:", emb)
+	idx, err := NewIndexer(":memory:", emb, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = idx.Close() }()
 
 	// First call on empty index: should reindex.
-	reindexed, stats, err := idx.EnsureFresh(context.Background(), projectDir)
+	reindexed, stats, err := idx.EnsureFresh(context.Background(), projectDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +282,7 @@ func Hello() {}
 	callsAfterFirst := emb.callCount
 
 	// Second call with no changes: should not reindex.
-	reindexed, _, err = idx.EnsureFresh(context.Background(), projectDir)
+	reindexed, _, err = idx.EnsureFresh(context.Background(), projectDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +299,7 @@ func Hello() {}
 func Hello() {}
 func World() {}
 `)
-	reindexed, stats, err = idx.EnsureFresh(context.Background(), projectDir)
+	reindexed, stats, err = idx.EnsureFresh(context.Background(), projectDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,6 +308,166 @@ func World() {}
 	}
 	if stats.IndexedFiles == 0 {
 		t.Fatal("expected indexed files > 0 after file change")
+	}
+}
+
+func TestIndexer_ProgressFunc(t *testing.T) {
+	projectDir := t.TempDir()
+	writeGoFile(t, projectDir, "a.go", `package main
+
+func A() {}
+`)
+	writeGoFile(t, projectDir, "b.go", `package main
+
+func B() {}
+`)
+
+	emb := &mockEmbedder{dims: 4, model: "test-model"}
+	idx, err := NewIndexer(":memory:", emb, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	type call struct {
+		current int
+		total   int
+		message string
+	}
+	var calls []call
+	progress := func(current, total int, message string) {
+		calls = append(calls, call{current, total, message})
+	}
+
+	_, err = idx.Index(context.Background(), projectDir, false, progress)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(calls) == 0 {
+		t.Fatal("expected progress calls, got none")
+	}
+
+	// First call should be the "Found N files" announcement.
+	first := calls[0]
+	if first.current != 0 {
+		t.Errorf("first call: expected current=0, got %d", first.current)
+	}
+	if first.total != 2 {
+		t.Errorf("first call: expected total=2, got %d", first.total)
+	}
+
+	// All calls must have total == fileCount (2) and current <= total.
+	for i, c := range calls {
+		if c.total != 2 {
+			t.Errorf("call[%d]: expected total=2, got %d (message: %s)", i, c.total, c.message)
+		}
+		if c.current > c.total {
+			t.Errorf("call[%d]: current (%d) > total (%d)", i, c.current, c.total)
+		}
+	}
+
+	// Should have per-file processing calls.
+	var processingCalls []call
+	for _, c := range calls {
+		if strings.Contains(c.message, "Processing file") {
+			processingCalls = append(processingCalls, c)
+		}
+	}
+	if len(processingCalls) != 2 {
+		t.Fatalf("expected 2 processing progress calls, got %d", len(processingCalls))
+	}
+
+	// Should have at least one embed call.
+	var embedCalls int
+	for _, c := range calls {
+		if strings.Contains(c.message, "Embedded") {
+			embedCalls++
+		}
+	}
+	if embedCalls == 0 {
+		t.Fatal("expected at least 1 embed progress call")
+	}
+
+	// Last call must be the completion notification.
+	last := calls[len(calls)-1]
+	if !strings.Contains(last.message, "Indexing complete") {
+		t.Errorf("last call should contain 'Indexing complete', got %q", last.message)
+	}
+	if last.current != last.total {
+		t.Errorf("last call: expected current == total, got current=%d total=%d", last.current, last.total)
+	}
+}
+
+func TestIndexer_ProgressFunc_Nil(t *testing.T) {
+	// Verify that passing nil progress doesn't panic.
+	projectDir := t.TempDir()
+	writeGoFile(t, projectDir, "main.go", `package main
+
+func Hello() {}
+`)
+
+	emb := &mockEmbedder{dims: 4, model: "test-model"}
+	idx, err := NewIndexer(":memory:", emb, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	if _, err := idx.Index(context.Background(), projectDir, false, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIndexer_IsFresh(t *testing.T) {
+	projectDir := t.TempDir()
+	writeGoFile(t, projectDir, "main.go", `package main
+
+func Hello() {}
+`)
+
+	emb := &mockEmbedder{dims: 4, model: "test-model"}
+	idx, err := NewIndexer(":memory:", emb, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	// Never indexed: should return false.
+	fresh, err := idx.IsFresh(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh {
+		t.Fatal("expected IsFresh=false for never-indexed project")
+	}
+
+	// Index the project.
+	if _, err := idx.Index(context.Background(), projectDir, false, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// After indexing with no changes: should return true.
+	fresh, err = idx.IsFresh(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fresh {
+		t.Fatal("expected IsFresh=true after indexing with no changes")
+	}
+
+	// Modify a file: should return false.
+	writeGoFile(t, projectDir, "main.go", `package main
+
+func Hello() {}
+func World() {}
+`)
+	fresh, err = idx.IsFresh(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh {
+		t.Fatal("expected IsFresh=false after modifying a file")
 	}
 }
 

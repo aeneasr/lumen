@@ -1,25 +1,26 @@
-package main
+// Copyright 2026 Aeneas Rekkas
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package cmd
 
 import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/aeneasr/agent-index/internal/config"
 )
-
-func TestIndexerCache_ConcurrentReads(_ *testing.T) {
-	ic := &indexerCache{embedder: &stubEmbedder{}}
-
-	const goroutines = 20
-	var wg sync.WaitGroup
-	for range goroutines {
-		wg.Go(func() {
-			// Path doesn't exist on disk — getOrCreate will error, that's fine.
-			// We're testing there's no data race on the cache map/mutex.
-			_, _ = ic.getOrCreate("/nonexistent/path/for/race/test")
-		})
-	}
-	wg.Wait()
-}
 
 // stubEmbedder satisfies embedder.Embedder for tests.
 type stubEmbedder struct{}
@@ -34,14 +35,22 @@ func (s *stubEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 func (s *stubEmbedder) Dimensions() int   { return 4 }
 func (s *stubEmbedder) ModelName() string { return "stub" }
 
-func TestEnvOrDefaultInt(t *testing.T) {
-	t.Setenv("TEST_DIMS", "384")
-	if got := envOrDefaultInt("TEST_DIMS", 1024); got != 384 {
-		t.Fatalf("got %d, want 384", got)
+func TestIndexerCache_ConcurrentReads(_ *testing.T) {
+	ic := &indexerCache{
+		embedder: &stubEmbedder{},
+		cfg:      config.Config{MaxChunkTokens: 2048},
 	}
-	if got := envOrDefaultInt("TEST_DIMS_UNSET", 1024); got != 1024 {
-		t.Fatalf("got %d, want 1024", got)
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			// Path doesn't exist on disk — getOrCreate will error, that's fine.
+			// We're testing there's no data race on the cache map/mutex.
+			_, _ = ic.getOrCreate("/nonexistent/path/for/race/test")
+		})
 	}
+	wg.Wait()
 }
 
 func TestScoreIsNotDistance(t *testing.T) {

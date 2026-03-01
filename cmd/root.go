@@ -12,8 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+// Package cmd implements the agent-index CLI commands.
+package cmd
 
-import "github.com/aeneasr/agent-index/cmd"
+import (
+	"os"
 
-func main() { cmd.Execute() }
+	"github.com/spf13/cobra"
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "agent-index",
+	Short: "Local semantic code search for AI agents",
+}
+
+// Execute runs the root command.
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
