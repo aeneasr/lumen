@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# bench-mcp.sh — benchmark baseline vs agent-index MCP across questions and models
+# bench-mcp.sh — benchmark baseline vs lumen MCP across questions and models
 set -eufo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
 FIXTURES_GO="$REPO/testdata/fixtures/go"
 FIXTURES_PY="$REPO/testdata/fixtures/python"
 FIXTURES_TS="$REPO/testdata/fixtures/ts"
-BINARY="$REPO/agent-index"
+BINARY="$REPO/lumen"
 
 # ── Questions (3 languages × 1 hard question each) ───────────────────────────
 QUESTIONS=(
@@ -84,14 +84,14 @@ for i in "${!Q_SLUGS[@]}"; do
 done
 
 # ── Build ──────────────────────────────────────────────────────────────────────
-echo "Building agent-index..."
-CGO_ENABLED=1 go build -o agent-index .
+echo "Building lumen..."
+CGO_ENABLED=1 go build -o lumen .
 
 # ── Index ─────────────────────────────────────────────────────────────────────
 echo "Indexing fixtures..."
 for fx_dir in "$FIXTURES_GO" "$FIXTURES_PY" "$FIXTURES_TS"; do
-  AGENT_INDEX_BACKEND="$EMBED_BACKEND" AGENT_INDEX_EMBED_MODEL="$EMBED_MODEL" \
-    ./agent-index index "$fx_dir" 2>&1 | tail -1
+  LUMEN_BACKEND="$EMBED_BACKEND" LUMEN_EMBED_MODEL="$EMBED_MODEL" \
+    ./lumen index "$fx_dir" 2>&1 | tail -1
 done
 
 # ── MCP configs ───────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ MCP_EMPTY=$(mktemp /tmp/bench-mcp-empty-XXXXXX).json
 trap 'rm -f "$MCP_ENABLED" "$MCP_EMPTY"' EXIT
 
 cat > "$MCP_ENABLED" <<EOF
-{"mcpServers":{"agent-index":{"command":"$BINARY","args":["stdio"],"env":{"AGENT_INDEX_BACKEND":"$EMBED_BACKEND","AGENT_INDEX_EMBED_MODEL":"$EMBED_MODEL"}}}}
+{"mcpServers":{"lumen":{"command":"$BINARY","args":["stdio"],"env":{"LUMEN_BACKEND":"$EMBED_BACKEND","LUMEN_EMBED_MODEL":"$EMBED_MODEL"}}}}
 EOF
 echo '{"mcpServers":{}}' > "$MCP_EMPTY"
 
@@ -124,7 +124,7 @@ run() {
   [[ -n "$disable_builtin_tools" ]] && tools_arg=(--tools "")
 
   local allowed_tools_arg=()
-  [[ "$mcp_cfg" == "$MCP_ENABLED" ]] && allowed_tools_arg=(--allowedTools "mcp__agent-index__semantic_search,mcp__agent-index__index_status")
+  [[ "$mcp_cfg" == "$MCP_ENABLED" ]] && allowed_tools_arg=(--allowedTools "mcp__lumen__semantic_search,mcp__lumen__index_status")
 
   DISABLE_PROMPT_CACHING=1 claude \
     --output-format stream-json \
