@@ -291,5 +291,4 @@ CGO_ENABLED=1 go build -o lumen .
 
 ## Contributing
 
-This project was created within a couple of days using Claude Code. The code
-base will contain tech debt and some slop as well.
+PRs and issues welcome. Run `make lint test` before submitting.

@@ -108,6 +108,10 @@ func collectFilePaths(rootDir string, skip SkipFunc) ([]string, error) {
 }
 
 func hashFilesInParallel(rootDir string, relPaths []string) (*Tree, error) {
+	if len(relPaths) == 0 {
+		return &Tree{Files: map[string]string{}}, nil
+	}
+
 	type result struct {
 		rel  string
 		hash string
@@ -122,9 +126,6 @@ func hashFilesInParallel(rootDir string, relPaths []string) (*Tree, error) {
 
 	results := make(chan result, len(relPaths))
 	workers := min(merkleWorkers, len(relPaths))
-	if workers == 0 {
-		workers = 1
-	}
 
 	var wg sync.WaitGroup
 	for range workers {

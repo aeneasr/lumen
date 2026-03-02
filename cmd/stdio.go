@@ -299,8 +299,6 @@ func (ic *indexerCache) handleIndexStatus(_ context.Context, _ *mcp.CallToolRequ
 	}, nil, nil
 }
 
-// extractSnippets reads source files and extracts the code at the line ranges
-// specified by each search result. Returns one string per result (empty on read error).
 func extractSnippets(projectPath string, results []store.SearchResult) []string {
 	snippets := make([]string, len(results))
 	filesByPath := groupResultsByFile(results)
@@ -335,27 +333,10 @@ func readFileLines(projectPath, filePath string) []string {
 	}
 	defer func() { _ = f.Close() }()
 
-	// Find max line first to limit reads
-	maxLine := 0
-	scanner := bufio.NewScanner(f)
-	for i := 1; scanner.Scan(); i++ {
-		maxLine = i
-	}
-
-	// Re-open and read up to maxLine
-	f2, err := os.Open(absPath)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = f2.Close() }()
-
 	var lines []string
-	scanner = bufio.NewScanner(f2)
+	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
-		if len(lines) >= maxLine {
-			break
-		}
 	}
 	return lines
 }
@@ -383,10 +364,6 @@ var xmlEscaper = strings.NewReplacer(
 	`"`, "&quot;",
 )
 
-func xmlEscape(s string) string {
-	return xmlEscaper.Replace(s)
-}
-
 // formatSearchResults builds an XML-tagged representation of search results
 // for LLM consumption. File paths are shown relative to the project root.
 func formatSearchResults(projectPath string, out SemanticSearchOutput) string {
@@ -412,7 +389,7 @@ func formatSearchResults(projectPath string, out SemanticSearchOutput) string {
 			rel = r.FilePath
 		}
 		fmt.Fprintf(&b, "\n<search:result filename=\"%s\" line-start=\"%d\" line-end=\"%d\" symbol=\"%s\" kind=\"%s\" score=\"%.2f\">\n",
-			xmlEscape(rel), r.StartLine, r.EndLine, xmlEscape(r.Symbol), xmlEscape(r.Kind), r.Score)
+			xmlEscaper.Replace(rel), r.StartLine, r.EndLine, xmlEscaper.Replace(r.Symbol), xmlEscaper.Replace(r.Kind), r.Score)
 		if r.Content != "" {
 			b.WriteString(r.Content)
 			b.WriteByte('\n')
