@@ -97,13 +97,3 @@ make install      # Install binary
 - **32-batch embedding**: Balance memory vs. API round-trips
 - **Cosine distance KNN**: Normalized for semantic similarity
 
-<!-- lumen:start -->
-# Code Search
-
-ALWAYS use `mcp__lumen__semantic_search` as the FIRST tool for code discovery and exploration.
-Do NOT default to Grep, Glob, or Read for search tasks — only use them for exact literal string lookups.
-
-Before using Grep, Glob, Find, or Read for any search, stop and ask: "Do I already know the exact
-literal string I'm searching for?" If not, use `mcp__lumen__semantic_search`. If semantic
-search is unavailable, Grep/Glob are acceptable fallbacks.
-<!-- lumen:end -->

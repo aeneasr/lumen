@@ -18,7 +18,7 @@ package embedder
 type ModelSpec struct {
 	Dims      int
 	CtxLength int
-	SizeHint  string
+	Backend   string // "ollama", "lmstudio", or "" for both
 }
 
 // DefaultOllamaModel is the default model when using the Ollama backend.
@@ -30,13 +30,19 @@ const DefaultLMStudioModel = "nomic-ai/nomic-embed-code-GGUF"
 // DefaultModel is an alias for DefaultOllamaModel for backward compatibility.
 const DefaultModel = DefaultOllamaModel
 
+// ModelAliases maps alternative model names to their canonical names.
+// LM Studio exposes some models under different names than their repository ID.
+var ModelAliases = map[string]string{
+	"text-embedding-nomic-embed-code": "nomic-ai/nomic-embed-code-GGUF",
+}
+
 // KnownModels maps model names to their specifications.
 var KnownModels = map[string]ModelSpec{
-	"ordis/jina-embeddings-v2-base-code": {768, 8192, "~323MB"},
-	"nomic-embed-text":                   {768, 8192, "~274MB"},
-	"nomic-ai/nomic-embed-code-GGUF":     {3584, 8192, "~274MB"},
-	"qwen3-embedding:8b":                 {4096, 40960, "~4.7GB"},
-	"qwen3-embedding:4b":                 {2560, 40960, "~2.6GB"},
-	"qwen3-embedding:0.6b":               {1024, 32768, "~522MB"},
-	"all-minilm":                         {384, 512, "~33MB"},
+	"ordis/jina-embeddings-v2-base-code": {Dims: 768, CtxLength: 8192, Backend: "ollama"},
+	"nomic-embed-text":                   {Dims: 768, CtxLength: 8192, Backend: "ollama"},
+	"nomic-ai/nomic-embed-code-GGUF":     {Dims: 3584, CtxLength: 8192, Backend: "lmstudio"},
+	"qwen3-embedding:8b":                 {Dims: 4096, CtxLength: 40960, Backend: "ollama"},
+	"qwen3-embedding:4b":                 {Dims: 2560, CtxLength: 40960, Backend: "ollama"},
+	"qwen3-embedding:0.6b":               {Dims: 1024, CtxLength: 32768, Backend: "ollama"},
+	"all-minilm":                         {Dims: 384, CtxLength: 512, Backend: "ollama"},
 }

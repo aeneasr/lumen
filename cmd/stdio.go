@@ -441,16 +441,28 @@ func runStdio(_ *cobra.Command, _ []string) error {
 			ReadOnlyHint: true,
 			Title:        "Semantic Code Search",
 		},
-		Description: `Search indexed codebase using natural language. Understands code meaning and semantic relationships — finds implementations by concept ("authentication middleware", "database connection pool", "retry logic", "rate limiter") even without exact keyword matches.
+		Description: `Search indexed codebase using natural language. ALWAYS use semantic_search as the FIRST tool for code discovery and exploration.
 
-Use for:
-- Finding where functionality is implemented
+Do NOT default to Grep, Glob, or Read for search tasks — only use them for exact literal string lookups.
+
+Before using Search, Grep, Glob, Find, or Read for any search, stop and ask:
+
+> "Do I already know the exact literal string I'm searching for?"
+
+- **No** — understanding how something works, finding where something is implemented, exploring
+  unfamiliar code → use **semantic search**
+- **Yes** — a specific function name, import path, variable name, or error message you already
+  know exists → Grep/Glob is acceptable for that exact string only
+
+# ALWAYS use semantic search as the first tool for code discovery
+
+This includes:
+
 - Understanding how a system or feature works
+- Finding where functionality is implemented
 - Discovering what calls what or how components connect
 - Locating code related to a concept or domain term
 - Finding relevant code before making changes
-
-Only use Grep/Glob when you already know the exact literal string (a specific function name, import path, or error message). For concept-based discovery, use this tool.
 
 Auto-indexes if the index is stale or empty.
 

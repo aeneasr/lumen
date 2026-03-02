@@ -38,32 +38,27 @@ func init() {
 	defaultName := filepath.Base(os.Args[0])
 	installCmd.Flags().StringP("mcp-name", "n", defaultName, "name to register with claude mcp add")
 	installCmd.Flags().StringP("model", "m", "", "skip interactive model selection, use this model")
-	installCmd.Flags().StringP("file", "f", "", "target CLAUDE.md/agents.md path (auto-detected if omitted)")
-	installCmd.Flags().Bool("dry-run", false, "print actions without executing them")
-	installCmd.Flags().Bool("no-mcp", false, "skip MCP registration, only write the CLAUDE.md snippet")
-	installCmd.Flags().Bool("no-claude-md", false, "skip CLAUDE.md/agents.md update, only register MCP")
+installCmd.Flags().Bool("dry-run", false, "print actions without executing them")
+	installCmd.Flags().Bool("no-mcp", false, "skip MCP registration, only write the rules file")
+	installCmd.Flags().Bool("no-rules", false, "skip rules file update, only register MCP")
+	installCmd.Flags().Bool("no-hooks", false, "skip SessionStart hook registration")
 	rootCmd.AddCommand(installCmd)
 }
 
 var installCmd = &cobra.Command{
-	Use:   "install [project-path]",
+	Use:   "install",
 	Short: "Install lumen MCP server and configure code search directives",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runInstall,
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
-	projectPath, err := resolveProjectPath(args)
-	if err != nil {
-		return err
-	}
-
 	mcpName, _ := cmd.Flags().GetString("mcp-name")
 	modelFlag, _ := cmd.Flags().GetString("model")
-	fileFlag, _ := cmd.Flags().GetString("file")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
+dryRun, _ := cmd.Flags().GetBool("dry-run")
 	noMCP, _ := cmd.Flags().GetBool("no-mcp")
-	noClaudeMD, _ := cmd.Flags().GetBool("no-claude-md")
+	noRules, _ := cmd.Flags().GetBool("no-rules")
+	noHooks, _ := cmd.Flags().GetBool("no-hooks")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -87,21 +82,21 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Phase 4: CLAUDE.md / agents.md upsert
-	if !noClaudeMD {
-		if err := upsertClaudeMD(projectPath, fileFlag, mcpName, dryRun); err != nil {
+	// Phase 4: rules file upsert
+	if !noRules {
+		if err := upsertRules(mcpName, dryRun); err != nil {
+			return err
+		}
+	}
+
+	// Phase 5: SessionStart hook registration
+	if !noHooks {
+		if err := upsertHook(mcpName, dryRun); err != nil {
 			return err
 		}
 	}
 
 	return nil
-}
-
-func resolveProjectPath(args []string) (string, error) {
-	if len(args) > 0 {
-		return filepath.Abs(args[0])
-	}
-	return os.Getwd()
 }
 
 // --- Phase 1: Service detection ---
@@ -268,79 +263,127 @@ func fetchLMStudioModels(ctx context.Context, host string) ([]string, error) {
 	return ids, nil
 }
 
-func selectModel(ctx context.Context, backend, host, modelFlag string) (string, error) {
-	var models []string
-	var err error
+// modelEntry holds a supported model and whether it is locally available.
+type modelEntry struct {
+	Name      string
+	Spec      embedder.ModelSpec
+	Available bool
+}
 
+func selectModel(ctx context.Context, backend, host, modelFlag string) (string, error) {
+	// Fetch locally available models from the service.
+	var available []string
+	var err error
 	if backend == config.BackendOllama {
-		models, err = fetchOllamaModels(ctx, host)
+		available, err = fetchOllamaModels(ctx, host)
 	} else {
-		models, err = fetchLMStudioModels(ctx, host)
+		available, err = fetchLMStudioModels(ctx, host)
 	}
 	if err != nil {
 		return "", fmt.Errorf("list models: %w", err)
 	}
 
 	if modelFlag != "" {
-		// Validate the model exists (warn but don't fail if unknown)
-		found := false
-		for _, m := range models {
-			if m == modelFlag {
-				found = true
-				break
-			}
+		if _, known := lookupModelSpec(modelFlag); !known {
+			fmt.Fprintf(os.Stderr, "Warning: model %q is not a supported model and may not work correctly\n", modelFlag)
 		}
-		if !found {
-			fmt.Fprintf(os.Stderr, "Warning: model %q not found in service response\n", modelFlag)
+		if !isModelAvailable(modelFlag, available) {
+			fmt.Fprintf(os.Stderr, "Warning: model %q not found locally — you may need to pull it first\n", modelFlag)
 		}
 		return modelFlag, nil
 	}
 
-	if len(models) == 0 {
-		return "", fmt.Errorf("no models available in %s — pull a model first", backend)
-	}
-
-	return promptModelSelection(models, backend)
+	return promptModelSelection(available, backend)
 }
 
-func promptModelSelection(models []string, backend string) (string, error) {
-	if !stdinIsTTY() {
-		return "", fmt.Errorf("stdin is not a terminal — use --model to specify a model non-interactively")
+// isModelAvailable checks if a model name (or its alias/canonical form) is in
+// the available list.
+func isModelAvailable(name string, available []string) bool {
+	canonical := canonicalModelName(name)
+	for _, a := range available {
+		if a == name || canonicalModelName(a) == canonical {
+			return true
+		}
+	}
+	return false
+}
+
+// supportedModelsForBackend returns all KnownModels entries that match the
+// given backend, annotated with local availability.
+func supportedModelsForBackend(backend string, available []string) []modelEntry {
+	defaultModel := embedder.DefaultOllamaModel
+	if backend == config.BackendLMStudio {
+		defaultModel = embedder.DefaultLMStudioModel
 	}
 
-	// Sort: known models first, then unknowns alphabetically
-	slices.SortFunc(models, func(a, b string) int {
-		_, aKnown := embedder.KnownModels[a]
-		_, bKnown := embedder.KnownModels[b]
-		if aKnown != bKnown {
-			if aKnown {
+	var entries []modelEntry
+	for name, spec := range embedder.KnownModels {
+		if spec.Backend != "" && spec.Backend != backend {
+			continue
+		}
+		entries = append(entries, modelEntry{
+			Name:      name,
+			Spec:      spec,
+			Available: isModelAvailable(name, available),
+		})
+	}
+
+	// Sort: default first, then available before not-available, then alphabetically.
+	slices.SortFunc(entries, func(a, b modelEntry) int {
+		aDefault := modelMatchesDefault(a.Name, defaultModel)
+		bDefault := modelMatchesDefault(b.Name, defaultModel)
+		if aDefault != bDefault {
+			if aDefault {
 				return -1
 			}
 			return 1
 		}
-		return strings.Compare(a, b)
+		if a.Available != b.Available {
+			if a.Available {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Name, b.Name)
 	})
 
-	backendLabel := "Ollama"
-	if backend == config.BackendLMStudio {
-		backendLabel = "LM Studio"
+	return entries
+}
+
+func promptModelSelection(available []string, backend string) (string, error) {
+	if !stdinIsTTY() {
+		return "", fmt.Errorf("stdin is not a terminal — use --model to specify a model non-interactively")
 	}
 
-	fmt.Fprintf(os.Stderr, "\nAvailable models (%s):\n", backendLabel)
-	for i, name := range models {
-		spec, known := embedder.KnownModels[name]
-		if known {
-			recommended := ""
-			if name == embedder.DefaultOllamaModel && backend == config.BackendOllama {
-				recommended = "  [recommended]"
-			} else if name == embedder.DefaultLMStudioModel && backend == config.BackendLMStudio {
-				recommended = "  [recommended]"
-			}
-			fmt.Fprintf(os.Stderr, "  %d. %-45s %4d dims  %5d ctx  %s%s\n",
-				i+1, name, spec.Dims, spec.CtxLength, spec.SizeHint, recommended)
-		} else {
-			fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, name)
+	entries := supportedModelsForBackend(backend, available)
+	if len(entries) == 0 {
+		return "", fmt.Errorf("no supported models for backend %q", backend)
+	}
+
+	defaultModel := embedder.DefaultOllamaModel
+	if backend == config.BackendLMStudio {
+		defaultModel = embedder.DefaultLMStudioModel
+	}
+
+	backendLabel := "Ollama"
+	pullCmd := "ollama pull"
+	if backend == config.BackendLMStudio {
+		backendLabel = "LM Studio"
+		pullCmd = "lms get"
+	}
+
+	fmt.Fprintf(os.Stderr, "\nSupported models (%s):\n", backendLabel)
+	for i, e := range entries {
+		status := "\u2713 ready"
+		if !e.Available {
+			status = "\u2717 needs pull"
 		}
+		recommended := ""
+		if modelMatchesDefault(e.Name, defaultModel) {
+			recommended = "  [recommended]"
+		}
+		fmt.Fprintf(os.Stderr, "  %d. %-40s %4d dims  %5d ctx  %-13s%s\n",
+			i+1, e.Name, e.Spec.Dims, e.Spec.CtxLength, status, recommended)
 	}
 
 	fmt.Fprint(os.Stderr, "\nPick a model [1]: ")
@@ -351,25 +394,37 @@ func promptModelSelection(models []string, backend string) (string, error) {
 	}
 
 	line = strings.TrimSpace(line)
+	idx := 0
 	if line == "" {
-		return models[0], nil
+		idx = 0
+	} else if n, err := strconv.Atoi(line); err == nil {
+		if n < 1 || n > len(entries) {
+			return "", fmt.Errorf("invalid selection %d: enter 1-%d", n, len(entries))
+		}
+		idx = n - 1
+	} else {
+		// Try model name directly.
+		found := false
+		for i, e := range entries {
+			if e.Name == line {
+				idx = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return "", fmt.Errorf("invalid selection %q", line)
+		}
 	}
 
-	// Try numeric selection
-	if idx, err := strconv.Atoi(line); err == nil {
-		if idx < 1 || idx > len(models) {
-			return "", fmt.Errorf("invalid selection %d: enter 1-%d", idx, len(models))
-		}
-		return models[idx-1], nil
+	selected := entries[idx]
+	if !selected.Available {
+		fmt.Fprintf(os.Stderr, "\nModel %q is not available locally.\n", selected.Name)
+		fmt.Fprintf(os.Stderr, "Pull it with: %s %s\n", pullCmd, selected.Name)
+		return "", fmt.Errorf("model %q not available — pull it first", selected.Name)
 	}
 
-	// Try model name directly
-	for _, m := range models {
-		if m == line {
-			return m, nil
-		}
-	}
-	return "", fmt.Errorf("invalid selection %q", line)
+	return selected.Name, nil
 }
 
 // --- Phase 3: MCP registration ---
@@ -396,26 +451,31 @@ func registerMCP(mcpName, backend, model string, dryRun bool) error {
 }
 
 func registerClaudeCode(mcpName, binaryPath, backend, model string, dryRun bool) error {
-	args := []string{
-		"mcp", "add",
-		"--scope", "user",
-		"-e", "LUMEN_BACKEND=" + backend,
-		"-e", "LUMEN_EMBED_MODEL=" + model,
-		mcpName, binaryPath, "--", "stdio",
-	}
-
 	if _, err := exec.LookPath("claude"); err != nil {
 		fmt.Fprintf(os.Stderr, "  ! Claude Code  (claude not in PATH — skipping)\n")
 		return err
 	}
 
-	cmdStr := "claude " + strings.Join(args, " ")
+	// Remove existing entry first (ignore errors — may not exist).
+	if !dryRun {
+		_ = exec.Command("claude", "mcp", "remove", "--scope", "user", mcpName).Run()
+	}
+
+	addArgs := []string{
+		"mcp", "add",
+		"--scope", "user",
+		"-eLUMEN_BACKEND=" + backend,
+		"-eLUMEN_EMBED_MODEL=" + model,
+		mcpName, binaryPath, "--", "stdio",
+	}
+
+	cmdStr := "claude " + strings.Join(addArgs, " ")
 	if dryRun {
 		fmt.Fprintf(os.Stderr, "  [dry-run] %s\n", cmdStr)
 		return nil
 	}
 
-	out, err := exec.Command("claude", args...).CombinedOutput()
+	out, err := exec.Command("claude", addArgs...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", cmdStr, strings.TrimSpace(string(out)))
 	}
@@ -424,25 +484,30 @@ func registerClaudeCode(mcpName, binaryPath, backend, model string, dryRun bool)
 }
 
 func registerCodex(mcpName, binaryPath, backend, model string, dryRun bool) error {
-	args := []string{
-		"mcp", "add",
-		"--env", "LUMEN_BACKEND=" + backend,
-		"--env", "LUMEN_EMBED_MODEL=" + model,
-		binaryPath, "stdio", mcpName,
-	}
-
 	if _, err := exec.LookPath("codex"); err != nil {
 		// Codex not in PATH: skip silently
 		return err
 	}
 
-	cmdStr := "codex " + strings.Join(args, " ")
+	// Remove existing entry first (ignore errors — may not exist).
+	if !dryRun {
+		_ = exec.Command("codex", "mcp", "remove", mcpName).Run()
+	}
+
+	addArgs := []string{
+		"mcp", "add",
+		"--env", "LUMEN_BACKEND=" + backend,
+		"--env", "LUMEN_EMBED_MODEL=" + model,
+		mcpName, binaryPath, "stdio",
+	}
+
+	cmdStr := "codex " + strings.Join(addArgs, " ")
 	if dryRun {
 		fmt.Fprintf(os.Stderr, "  [dry-run] %s\n", cmdStr)
 		return nil
 	}
 
-	out, err := exec.Command("codex", args...).CombinedOutput()
+	out, err := exec.Command("codex", addArgs...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", cmdStr, strings.TrimSpace(string(out)))
 	}
@@ -454,132 +519,215 @@ func isNotFound(err error) bool {
 	return errors.Is(err, exec.ErrNotFound)
 }
 
-// --- Phase 4: CLAUDE.md / agents.md upsert ---
+// --- Phase 4: rules file upsert ---
 
-func upsertClaudeMD(projectPath, fileFlag, mcpName string, dryRun bool) error {
-	targetFile, err := resolveTargetFile(projectPath, fileFlag)
-	if err != nil {
-		return err
-	}
+func upsertRules(mcpName string, dryRun bool) error {
+	targetFile := rulesFilePath(mcpName)
 
-	fmt.Fprintf(os.Stderr, "\nUpdating %s...\n", filepath.Base(targetFile))
+	fmt.Fprintf(os.Stderr, "\nWriting rules file...\n")
 
-	existing := ""
-	if data, readErr := os.ReadFile(targetFile); readErr == nil {
-		existing = string(data)
-	}
-
-	snippet := generateSnippet(mcpName)
-	updated := upsertSnippet(existing, snippet)
-
-	rel, err := filepath.Rel(projectPath, targetFile)
-	if err != nil {
-		rel = targetFile
-	}
+	content := generateSnippet(mcpName)
 
 	if dryRun {
-		fmt.Fprintf(os.Stderr, "  [dry-run] Would write snippet to ./%s (mcp-name: %s)\n", rel, mcpName)
+		fmt.Fprintf(os.Stderr, "  [dry-run] Would write rules to %s (mcp-name: %s)\n", targetFile, mcpName)
 		return nil
 	}
 
 	if err := os.MkdirAll(filepath.Dir(targetFile), 0o755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}
-	if err := os.WriteFile(targetFile, []byte(updated), 0o644); err != nil {
+	if err := os.WriteFile(targetFile, []byte(content+"\n"), 0o644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "  \u2713 Wrote snippet to ./%s (mcp-name: %s)\n", rel, mcpName)
+	fmt.Fprintf(os.Stderr, "  \u2713 Wrote rules to %s (mcp-name: %s)\n", targetFile, mcpName)
 	return nil
 }
 
-// resolveTargetFile determines which file to upsert the snippet into.
-func resolveTargetFile(projectPath, fileFlag string) (string, error) {
-	if fileFlag != "" {
-		if filepath.IsAbs(fileFlag) {
-			return fileFlag, nil
+// rulesFilePath returns ~/.claude/rules/{mcpName}.md.
+func rulesFilePath(mcpName string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".claude", "rules", mcpName+".md")
+}
+
+// generateSnippet returns the code search directive for the given MCP server name.
+func generateSnippet(mcpName string) string {
+	toolRef := "`mcp__" + mcpName + "__semantic_search`"
+	return "# Code Search\n\n" +
+		"ALWAYS use " + toolRef + " as the FIRST tool for code discovery and exploration.\n" +
+		"Do NOT default to Grep, Glob, or Read for search tasks — only use them for exact literal string lookups.\n\n" +
+		"Before using Grep, Glob, Find, or Read for any search, stop and ask:\n\n" +
+		"> \"Do I already know the exact literal string I'm searching for?\"\n\n" +
+		"- **No** — understanding how something works, finding where something is implemented, exploring\n" +
+		"  unfamiliar code → use " + toolRef + "\n" +
+		"- **Yes** — a specific function name, import path, variable name, or error message → Grep/Glob is acceptable\n\n" +
+		"If semantic search is unavailable, Grep/Glob are acceptable fallbacks."
+}
+
+// canonicalModelName resolves a model name to its canonical form by stripping
+// the ":latest" tag and checking the alias map.
+func canonicalModelName(name string) string {
+	stripped := strings.TrimSuffix(name, ":latest")
+	if canonical, ok := embedder.ModelAliases[stripped]; ok {
+		return canonical
+	}
+	return stripped
+}
+
+// modelMatchesDefault reports whether a model name matches a default, ignoring
+// the ":latest" tag that Ollama appends and resolving known aliases.
+func modelMatchesDefault(model, defaultModel string) bool {
+	return canonicalModelName(model) == defaultModel
+}
+
+// lookupModelSpec looks up a model in the KnownModels registry, falling back
+// to a lookup with the ":latest" tag stripped and alias resolution.
+func lookupModelSpec(name string) (embedder.ModelSpec, bool) {
+	if spec, ok := embedder.KnownModels[name]; ok {
+		return spec, true
+	}
+	spec, ok := embedder.KnownModels[canonicalModelName(name)]
+	return spec, ok
+}
+
+// --- Phase 5: SessionStart hook registration ---
+
+// upsertHook registers a SessionStart hook in ~/.claude/settings.json that
+// injects EXTREMELY_IMPORTANT-wrapped directives into every conversation.
+func upsertHook(mcpName string, dryRun bool) error {
+	binaryPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve binary path: %w", err)
+	}
+
+	settingsPath := claudeSettingsPath()
+
+	fmt.Fprintln(os.Stderr, "\nRegistering SessionStart hook...")
+
+	if dryRun {
+		fmt.Fprintf(os.Stderr, "  [dry-run] Would register SessionStart hook in %s\n", settingsPath)
+		return nil
+	}
+
+	settings, err := readSettings(settingsPath)
+	if err != nil {
+		return err
+	}
+
+	addSessionStartHook(settings, binaryPath, mcpName)
+
+	if err := writeSettings(settingsPath, settings); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "  ✓ Registered SessionStart hook in %s\n", settingsPath)
+	return nil
+}
+
+// claudeSettingsPath returns ~/.claude/settings.json.
+func claudeSettingsPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".claude", "settings.json")
+}
+
+// readSettings reads and parses ~/.claude/settings.json, returning an empty
+// map if the file does not exist.
+func readSettings(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]any{}, nil
 		}
-		return filepath.Join(projectPath, fileFlag), nil
+		return nil, fmt.Errorf("read settings: %w", err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return nil, fmt.Errorf("parse settings: %w", err)
+	}
+	return settings, nil
+}
+
+// writeSettings marshals settings with indentation and writes to path,
+// creating parent directories if needed.
+func writeSettings(path string, settings map[string]any) error {
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create settings directory: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write settings: %w", err)
+	}
+	return nil
+}
+
+// addSessionStartHook merges a lumen SessionStart hook entry into the settings
+// map, replacing any existing hook whose command references the same binary.
+func addSessionStartHook(settings map[string]any, binaryPath, mcpName string) {
+	hookCommand := binaryPath + " hook session-start " + mcpName
+
+	hookEntry := map[string]any{
+		"type":    "command",
+		"command": hookCommand,
 	}
 
-	candidates := []struct {
-		path      string
-		checkOnly bool // true = only check if redirect; false = check content for @agents.md
-	}{
-		{filepath.Join(projectPath, "CLAUDE.md"), false},
-		{filepath.Join(projectPath, "agents.md"), true},
-		{filepath.Join(projectPath, ".claude", "CLAUDE.md"), false},
-		{filepath.Join(projectPath, ".claude", "agents.md"), true},
+	matcherEntry := map[string]any{
+		"matcher": "startup|resume|clear|compact",
+		"hooks":   []any{hookEntry},
 	}
 
-	for _, c := range candidates {
-		if c.checkOnly {
-			if fileExists(c.path) {
-				return c.path, nil
-			}
+	hooks, ok := settings["hooks"].(map[string]any)
+	if !ok {
+		hooks = map[string]any{}
+		settings["hooks"] = hooks
+	}
+
+	sessionStartHooks, ok := hooks["SessionStart"].([]any)
+	if !ok {
+		sessionStartHooks = []any{}
+	}
+
+	// Remove any existing lumen hooks (matching mcpName or binary path in command).
+	filtered := make([]any, 0, len(sessionStartHooks))
+	for _, entry := range sessionStartHooks {
+		if !hookEntryMatchesMCPName(entry, mcpName) && !hookEntryMatchesBinary(entry, binaryPath) {
+			filtered = append(filtered, entry)
+		}
+	}
+
+	hooks["SessionStart"] = append(filtered, matcherEntry)
+}
+
+// hookEntryMatchesBinary returns true if a hook entry's command contains the
+// given binary path.
+func hookEntryMatchesBinary(entry any, binaryPath string) bool {
+	m, ok := entry.(map[string]any)
+	if !ok {
+		return false
+	}
+	hooksList, ok := m["hooks"].([]any)
+	if !ok {
+		return false
+	}
+	for _, h := range hooksList {
+		hm, ok := h.(map[string]any)
+		if !ok {
 			continue
 		}
-		// CLAUDE.md: check if it redirects to agents.md
-		if data, err := os.ReadFile(c.path); err == nil {
-			content := strings.TrimSpace(string(data))
-			if content == "@agents.md" {
-				// Write to agents.md in the same directory
-				return filepath.Join(filepath.Dir(c.path), "agents.md"), nil
-			}
-			// Regular CLAUDE.md with content
-			return c.path, nil
+		cmd, ok := hm["command"].(string)
+		if ok && strings.Contains(cmd, binaryPath) {
+			return true
 		}
 	}
-
-	// Nothing found — create CLAUDE.md at project root
-	return filepath.Join(projectPath, "CLAUDE.md"), nil
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-const (
-	snippetStart = "<!-- lumen:start -->"
-	snippetEnd   = "<!-- lumen:end -->"
-)
-
-// generateSnippet returns the CLAUDE.md code search directive for the given MCP server name.
-func generateSnippet(mcpName string) string {
-	return snippetStart + "\n" +
-		"# Code Search\n\n" +
-		"ALWAYS use `mcp__" + mcpName + "__semantic_search` as the FIRST tool for code discovery and exploration.\n" +
-		"Do NOT default to Grep, Glob, or Read for search tasks — only use them for exact literal string lookups.\n\n" +
-		"Before using Grep, Glob, Find, or Read for any search, stop and ask: \"Do I already know the exact\n" +
-		"literal string I'm searching for?\" If not, use `mcp__" + mcpName + "__semantic_search`. If semantic\n" +
-		"search is unavailable, Grep/Glob are acceptable fallbacks.\n" +
-		snippetEnd
-}
-
-// upsertSnippet inserts or replaces the snippet markers in existing content.
-// It is a pure function and is directly testable.
-func upsertSnippet(existing, snippet string) string {
-	startIdx := strings.Index(existing, snippetStart)
-	endIdx := strings.Index(existing, snippetEnd)
-
-	if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
-		// Replace between markers (inclusive)
-		return existing[:startIdx] + snippet + existing[endIdx+len(snippetEnd):]
-	}
-
-	// Append
-	if strings.TrimSpace(existing) == "" {
-		return snippet + "\n"
-	}
-	// Ensure blank line separator before appending
-	if !strings.HasSuffix(existing, "\n\n") {
-		if strings.HasSuffix(existing, "\n") {
-			existing += "\n"
-		} else {
-			existing += "\n\n"
-		}
-	}
-	return existing + snippet + "\n"
+	return false
 }
 
 // --- Helpers ---

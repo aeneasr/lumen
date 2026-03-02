@@ -18,13 +18,13 @@ import "testing"
 
 func TestKnownModels(t *testing.T) {
 	expected := map[string]ModelSpec{
-		"ordis/jina-embeddings-v2-base-code": {768, 8192, "~323MB"},
-		"nomic-embed-text":                   {768, 8192, "~274MB"},
-		"nomic-ai/nomic-embed-code-GGUF":     {3584, 8192, "~274MB"},
-		"qwen3-embedding:8b":                 {4096, 40960, "~4.7GB"},
-		"qwen3-embedding:4b":                 {2560, 40960, "~2.6GB"},
-		"qwen3-embedding:0.6b":               {1024, 32768, "~522MB"},
-		"all-minilm":                         {384, 512, "~33MB"},
+		"ordis/jina-embeddings-v2-base-code": {Dims: 768, CtxLength: 8192, Backend: "ollama"},
+		"nomic-embed-text":                   {Dims: 768, CtxLength: 8192, Backend: "ollama"},
+		"nomic-ai/nomic-embed-code-GGUF":     {Dims: 3584, CtxLength: 8192, Backend: "lmstudio"},
+		"qwen3-embedding:8b":                 {Dims: 4096, CtxLength: 40960, Backend: "ollama"},
+		"qwen3-embedding:4b":                 {Dims: 2560, CtxLength: 40960, Backend: "ollama"},
+		"qwen3-embedding:0.6b":               {Dims: 1024, CtxLength: 32768, Backend: "ollama"},
+		"all-minilm":                         {Dims: 384, CtxLength: 512, Backend: "ollama"},
 	}
 
 	for name, want := range expected {
