@@ -45,7 +45,7 @@ type Config struct {
 
 // Load reads configuration from environment variables and the model registry.
 func Load() (Config, error) {
-	backend := EnvOrDefault("AGENT_INDEX_BACKEND", BackendOllama)
+	backend := EnvOrDefault("LUMEN_BACKEND", BackendOllama)
 	if backend != BackendOllama && backend != BackendLMStudio {
 		return Config{}, fmt.Errorf("unknown backend %q: must be %q or %q", backend, BackendOllama, BackendLMStudio)
 	}
@@ -55,7 +55,7 @@ func Load() (Config, error) {
 		defaultModel = embedder.DefaultLMStudioModel
 	}
 
-	model := EnvOrDefault("AGENT_INDEX_EMBED_MODEL", defaultModel)
+	model := EnvOrDefault("LUMEN_EMBED_MODEL", defaultModel)
 	spec, ok := embedder.KnownModels[model]
 	if !ok {
 		return Config{}, fmt.Errorf("unknown embedding model %q", model)
@@ -64,7 +64,7 @@ func Load() (Config, error) {
 		Model:          model,
 		Dims:           spec.Dims,
 		CtxLength:      spec.CtxLength,
-		MaxChunkTokens: EnvOrDefaultInt("AGENT_INDEX_MAX_CHUNK_TOKENS", 512),
+		MaxChunkTokens: EnvOrDefaultInt("LUMEN_MAX_CHUNK_TOKENS", 512),
 		OllamaHost:     EnvOrDefault("OLLAMA_HOST", "http://localhost:11434"),
 		Backend:        backend,
 		LMStudioHost:   EnvOrDefault("LM_STUDIO_HOST", "http://localhost:1234"),

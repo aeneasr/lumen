@@ -33,7 +33,7 @@ type StructuredChunker struct {
 }
 
 // NewStructuredChunker returns a StructuredChunker. maxTokens is the token
-// budget per chunk; use AGENT_INDEX_MAX_CHUNK_TOKENS (default 2048).
+// budget per chunk; use LUMEN_MAX_CHUNK_TOKENS (default 2048).
 func NewStructuredChunker(maxTokens int) *StructuredChunker {
 	return &StructuredChunker{maxChars: maxTokens * 4}
 }

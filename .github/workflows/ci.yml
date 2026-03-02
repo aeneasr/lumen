@@ -72,5 +72,5 @@ jobs:
         run: make e2e
         env:
           OLLAMA_HOST: http://localhost:11434
-          AGENT_INDEX_EMBED_MODEL: all-minilm
-          AGENT_INDEX_EMBED_DIMS: '384'
+          LUMEN_EMBED_MODEL: all-minilm
+          LUMEN_EMBED_DIMS: '384'

@@ -28,7 +28,7 @@ import (
 )
 
 func init() {
-	indexCmd.Flags().StringP("model", "m", "", "embedding model (default: $AGENT_INDEX_EMBED_MODEL or "+embedder.DefaultModel+")")
+	indexCmd.Flags().StringP("model", "m", "", "embedding model (default: $LUMEN_EMBED_MODEL or "+embedder.DefaultModel+")")
 	indexCmd.Flags().BoolP("force", "f", false, "force full re-index")
 	rootCmd.AddCommand(indexCmd)
 }
