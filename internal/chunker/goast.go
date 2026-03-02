@@ -81,45 +81,52 @@ func chunkGenDecl(fset *token.FileSet, filePath string, content []byte, d *ast.G
 	for _, spec := range d.Specs {
 		switch s := spec.(type) {
 		case *ast.TypeSpec:
-			kind := "type"
-			if _, ok := s.Type.(*ast.InterfaceType); ok {
-				kind = "interface"
-			}
-			doc := s.Doc
-			if doc == nil {
-				doc = d.Doc
-			}
-			var start, end token.Position
-			if len(d.Specs) == 1 {
-				start, end = declRange(fset, doc, d.Pos(), d.End())
-			} else {
-				start, end = declRange(fset, s.Doc, s.Pos(), s.End())
-			}
-			chunks = append(chunks, makeChunk(filePath, s.Name.Name, kind,
-				start.Line, end.Line, sliceContent(content, start.Offset, end.Offset)))
+			chunks = append(chunks, chunkTypeSpec(fset, filePath, content, d, s))
 
 		case *ast.ValueSpec:
-			kind := "var"
-			if d.Tok == token.CONST {
-				kind = "const"
-			}
-			symbol := s.Names[0].Name
-			doc := s.Doc
-			if doc == nil {
-				doc = d.Doc
-			}
-			var start, end token.Position
-			if len(d.Specs) == 1 {
-				start, end = declRange(fset, doc, d.Pos(), d.End())
-			} else {
-				start, end = declRange(fset, s.Doc, s.Pos(), s.End())
-			}
-			chunks = append(chunks, makeChunk(filePath, symbol, kind,
-				start.Line, end.Line, sliceContent(content, start.Offset, end.Offset)))
+			chunks = append(chunks, chunkValueSpec(fset, filePath, content, d, s))
 		}
 	}
 
 	return chunks
+}
+
+func chunkTypeSpec(fset *token.FileSet, filePath string, content []byte, d *ast.GenDecl, s *ast.TypeSpec) Chunk {
+	kind := "type"
+	if _, ok := s.Type.(*ast.InterfaceType); ok {
+		kind = "interface"
+	}
+	doc := s.Doc
+	if doc == nil {
+		doc = d.Doc
+	}
+	var start, end token.Position
+	if len(d.Specs) == 1 {
+		start, end = declRange(fset, doc, d.Pos(), d.End())
+	} else {
+		start, end = declRange(fset, s.Doc, s.Pos(), s.End())
+	}
+	return makeChunk(filePath, s.Name.Name, kind, start.Line, end.Line,
+		sliceContent(content, start.Offset, end.Offset))
+}
+
+func chunkValueSpec(fset *token.FileSet, filePath string, content []byte, d *ast.GenDecl, s *ast.ValueSpec) Chunk {
+	kind := "var"
+	if d.Tok == token.CONST {
+		kind = "const"
+	}
+	doc := s.Doc
+	if doc == nil {
+		doc = d.Doc
+	}
+	var start, end token.Position
+	if len(d.Specs) == 1 {
+		start, end = declRange(fset, doc, d.Pos(), d.End())
+	} else {
+		start, end = declRange(fset, s.Doc, s.Pos(), s.End())
+	}
+	return makeChunk(filePath, s.Names[0].Name, kind, start.Line, end.Line,
+		sliceContent(content, start.Offset, end.Offset))
 }
 
 func declRange(fset *token.FileSet, doc *ast.CommentGroup, pos, end token.Pos) (token.Position, token.Position) {

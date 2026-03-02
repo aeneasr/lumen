@@ -23,6 +23,13 @@ import (
 	"testing"
 )
 
+// progressCall represents a progress function call for testing.
+type progressCall struct {
+	current int
+	total   int
+	message string
+}
+
 // mockEmbedder returns fixed vectors for testing.
 type mockEmbedder struct {
 	dims      int
@@ -329,14 +336,9 @@ func B() {}
 	}
 	defer func() { _ = idx.Close() }()
 
-	type call struct {
-		current int
-		total   int
-		message string
-	}
-	var calls []call
+	var calls []progressCall
 	progress := func(current, total int, message string) {
-		calls = append(calls, call{current, total, message})
+		calls = append(calls, progressCall{current, total, message})
 	}
 
 	_, err = idx.Index(context.Background(), projectDir, false, progress)
@@ -344,20 +346,31 @@ func B() {}
 		t.Fatal(err)
 	}
 
+	checkProgressCalls(t, calls)
+}
+
+func checkProgressCalls(t *testing.T, calls []progressCall) {
 	if len(calls) == 0 {
 		t.Fatal("expected progress calls, got none")
 	}
 
-	// First call should be the "Found N files" announcement.
-	first := calls[0]
+	checkFirstCall(t, calls[0])
+	checkAllCalls(t, calls)
+	checkProcessingCalls(t, calls)
+	checkEmbedCalls(t, calls)
+	checkLastCall(t, calls[len(calls)-1])
+}
+
+func checkFirstCall(t *testing.T, first progressCall) {
 	if first.current != 0 {
 		t.Errorf("first call: expected current=0, got %d", first.current)
 	}
 	if first.total != 2 {
 		t.Errorf("first call: expected total=2, got %d", first.total)
 	}
+}
 
-	// All calls must have total == fileCount (2) and current <= total.
+func checkAllCalls(t *testing.T, calls []progressCall) {
 	for i, c := range calls {
 		if c.total != 2 {
 			t.Errorf("call[%d]: expected total=2, got %d (message: %s)", i, c.total, c.message)
@@ -366,19 +379,21 @@ func B() {}
 			t.Errorf("call[%d]: current (%d) > total (%d)", i, c.current, c.total)
 		}
 	}
+}
 
-	// Should have per-file processing calls.
-	var processingCalls []call
+func checkProcessingCalls(t *testing.T, calls []progressCall) {
+	var processingCalls int
 	for _, c := range calls {
 		if strings.Contains(c.message, "Processing file") {
-			processingCalls = append(processingCalls, c)
+			processingCalls++
 		}
 	}
-	if len(processingCalls) != 2 {
-		t.Fatalf("expected 2 processing progress calls, got %d", len(processingCalls))
+	if processingCalls != 2 {
+		t.Fatalf("expected 2 processing progress calls, got %d", processingCalls)
 	}
+}
 
-	// Should have at least one embed call.
+func checkEmbedCalls(t *testing.T, calls []progressCall) {
 	var embedCalls int
 	for _, c := range calls {
 		if strings.Contains(c.message, "Embedded") {
@@ -388,9 +403,9 @@ func B() {}
 	if embedCalls == 0 {
 		t.Fatal("expected at least 1 embed progress call")
 	}
+}
 
-	// Last call must be the completion notification.
-	last := calls[len(calls)-1]
+func checkLastCall(t *testing.T, last progressCall) {
 	if !strings.Contains(last.message, "Indexing complete") {
 		t.Errorf("last call should contain 'Indexing complete', got %q", last.message)
 	}

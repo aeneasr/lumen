@@ -46,14 +46,8 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if m, _ := cmd.Flags().GetString("model"); m != "" {
-		spec, ok := embedder.KnownModels[m]
-		if !ok {
-			return fmt.Errorf("unknown embedding model %q", m)
-		}
-		cfg.Model = m
-		cfg.Dims = spec.Dims
-		cfg.CtxLength = spec.CtxLength
+	if err := applyModelFlag(cmd, &cfg); err != nil {
+		return err
 	}
 
 	projectPath, err := filepath.Abs(args[0])
@@ -61,19 +55,9 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("resolve path: %w", err)
 	}
 
-	emb, err := newEmbedder(cfg)
+	idx, err := setupIndexer(&cfg, projectPath)
 	if err != nil {
-		return fmt.Errorf("create embedder: %w", err)
-	}
-
-	dbPath := config.DBPathForProject(projectPath, cfg.Model)
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return fmt.Errorf("create db directory: %w", err)
-	}
-
-	idx, err := index.NewIndexer(dbPath, emb, cfg.MaxChunkTokens)
-	if err != nil {
-		return fmt.Errorf("create indexer: %w", err)
+		return err
 	}
 
 	fmt.Fprintf(os.Stderr, "Indexing %s (model: %s, dims: %d)\n", projectPath, cfg.Model, cfg.Dims)
@@ -83,24 +67,63 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	}
 
 	start := time.Now()
-
-	force, _ := cmd.Flags().GetBool("force")
-	var stats index.Stats
-	if force {
-		stats, err = idx.Index(context.Background(), projectPath, true, progress)
-	} else {
-		var reindexed bool
-		reindexed, stats, err = idx.EnsureFresh(context.Background(), projectPath, progress)
-		if err == nil && !reindexed {
-			_, _ = fmt.Fprintln(os.Stdout, "Index is already up to date.")
-			return nil
-		}
-	}
+	stats, err := performIndexing(cmd, idx, projectPath, progress)
 	if err != nil {
-		return fmt.Errorf("indexing: %w", err)
+		return err
 	}
 
 	_, _ = fmt.Fprintf(os.Stdout, "Done. Indexed %d files, %d chunks in %s.\n",
 		stats.IndexedFiles, stats.ChunksCreated, time.Since(start).Round(time.Millisecond))
 	return nil
+}
+
+func applyModelFlag(cmd *cobra.Command, cfg *config.Config) error {
+	m, _ := cmd.Flags().GetString("model")
+	if m == "" {
+		return nil
+	}
+	spec, ok := embedder.KnownModels[m]
+	if !ok {
+		return fmt.Errorf("unknown embedding model %q", m)
+	}
+	cfg.Model = m
+	cfg.Dims = spec.Dims
+	cfg.CtxLength = spec.CtxLength
+	return nil
+}
+
+func setupIndexer(cfg *config.Config, projectPath string) (*index.Indexer, error) {
+	emb, err := newEmbedder(*cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create embedder: %w", err)
+	}
+
+	dbPath := config.DBPathForProject(projectPath, cfg.Model)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		return nil, fmt.Errorf("create db directory: %w", err)
+	}
+
+	idx, err := index.NewIndexer(dbPath, emb, cfg.MaxChunkTokens)
+	if err != nil {
+		return nil, fmt.Errorf("create indexer: %w", err)
+	}
+	return idx, nil
+}
+
+func performIndexing(cmd *cobra.Command, idx *index.Indexer, projectPath string, progress index.ProgressFunc) (index.Stats, error) {
+	force, _ := cmd.Flags().GetBool("force")
+	if force {
+		return idx.Index(context.Background(), projectPath, true, progress)
+	}
+
+	reindexed, stats, err := idx.EnsureFresh(context.Background(), projectPath, progress)
+	if err != nil {
+		return stats, fmt.Errorf("indexing: %w", err)
+	}
+
+	if !reindexed {
+		_, _ = fmt.Fprintln(os.Stdout, "Index is already up to date.")
+	}
+
+	return stats, nil
 }

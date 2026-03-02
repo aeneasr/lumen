@@ -66,6 +66,8 @@ func runCLIWithDataHome(t *testing.T, dataHome string, args ...string) (stdout, 
 }
 
 func TestE2E_CLI_IndexAndSearch(t *testing.T) {
+	t.Skip("search is now MCP-only, CLI command removed")
+
 	projectPath := sampleProjectPath(t)
 	dataHome := t.TempDir()
 
@@ -155,6 +157,8 @@ func TestE2E_CLI_IndexAndSearch(t *testing.T) {
 }
 
 func TestE2E_CLI_SearchLimit(t *testing.T) {
+	t.Skip("search is now MCP-only, CLI command removed")
+
 	projectPath := sampleProjectPath(t)
 	dataHome := t.TempDir()
 
@@ -183,6 +187,8 @@ func TestE2E_CLI_SearchLimit(t *testing.T) {
 }
 
 func TestE2E_CLI_SearchNoIndex(t *testing.T) {
+	t.Skip("search is now MCP-only, CLI command removed")
+
 	tmpDir := t.TempDir()
 
 	// Search without indexing first — should fail with helpful error.

@@ -57,50 +57,63 @@ func TestTreeSitterChunker_Python(t *testing.T) {
 		bySymbol[ch.Symbol] = ch
 	}
 
-	greet, ok := bySymbol["greet"]
-	if !ok {
-		t.Fatalf("expected chunk 'greet', got symbols: %v", symbolNames(chunks))
-	}
-	if greet.Kind != "function" {
-		t.Errorf("greet.Kind = %q, want %q", greet.Kind, "function")
-	}
-	if greet.StartLine != 1 {
-		t.Errorf("greet.StartLine = %d, want 1", greet.StartLine)
-	}
-	if greet.FilePath != "sample.py" {
-		t.Errorf("greet.FilePath = %q", greet.FilePath)
-	}
-	if greet.ID == "" {
-		t.Error("greet.ID is empty")
-	}
-	if !strings.Contains(greet.Content, "def greet") {
-		t.Errorf("greet.Content does not contain %q: %q", "def greet", greet.Content)
-	}
-	if greet.EndLine != 3 {
-		t.Errorf("greet.EndLine = %d, want 3", greet.EndLine)
-	}
+	checkChunk(t, bySymbol, "greet", "function", 1, 3, "sample.py", "def greet")
+	checkChunk(t, bySymbol, "Animal", "type", 5, 7, "sample.py", "")
+	checkChunk(t, bySymbol, "speak", "function", 0, 0, "sample.py", "")
+}
 
-	animal, ok := bySymbol["Animal"]
+func checkChunk(t *testing.T, bySymbol map[string]chunker.Chunk, symbol, kind string, startLine, endLine int, filePath, contentContains string) {
+	t.Helper()
+	ch, ok := bySymbol[symbol]
 	if !ok {
-		t.Fatalf("expected chunk 'Animal', got symbols: %v", symbolNames(chunks))
+		t.Fatalf("expected chunk %q, got symbols: %v", symbol, getChunkSymbols(bySymbol))
 	}
-	if animal.Kind != "type" {
-		t.Errorf("animal.Kind = %q, want %q", animal.Kind, "type")
-	}
-	if animal.StartLine != 5 {
-		t.Errorf("animal.StartLine = %d, want 5", animal.StartLine)
-	}
-	if animal.EndLine != 7 {
-		t.Errorf("animal.EndLine = %d, want 7", animal.EndLine)
-	}
+	checkChunkKind(t, symbol, ch.Kind, kind)
+	checkChunkLines(t, symbol, ch.StartLine, ch.EndLine, startLine, endLine)
+	checkChunkPath(t, symbol, ch.FilePath, filePath)
+	checkChunkID(t, symbol, ch.ID)
+	checkChunkContent(t, symbol, ch.Content, contentContains)
+}
 
-	speak, ok := bySymbol["speak"]
-	if !ok {
-		t.Fatalf("expected chunk 'speak', got symbols: %v", symbolNames(chunks))
+func checkChunkKind(t *testing.T, symbol, actual, expected string) {
+	if actual != expected {
+		t.Errorf("%s.Kind = %q, want %q", symbol, actual, expected)
 	}
-	if speak.Kind != "function" {
-		t.Errorf("speak.Kind = %q, want %q", speak.Kind, "function")
+}
+
+func checkChunkLines(t *testing.T, symbol string, actualStart, actualEnd, expectedStart, expectedEnd int) {
+	if expectedStart > 0 && actualStart != expectedStart {
+		t.Errorf("%s.StartLine = %d, want %d", symbol, actualStart, expectedStart)
 	}
+	if expectedEnd > 0 && actualEnd != expectedEnd {
+		t.Errorf("%s.EndLine = %d, want %d", symbol, actualEnd, expectedEnd)
+	}
+}
+
+func checkChunkPath(t *testing.T, symbol, actual, expected string) {
+	if expected != "" && actual != expected {
+		t.Errorf("%s.FilePath = %q, want %q", symbol, actual, expected)
+	}
+}
+
+func checkChunkID(t *testing.T, symbol, id string) {
+	if id == "" {
+		t.Errorf("%s.ID is empty", symbol)
+	}
+}
+
+func checkChunkContent(t *testing.T, symbol, content, contains string) {
+	if contains != "" && !strings.Contains(content, contains) {
+		t.Errorf("%s.Content does not contain %q", symbol, contains)
+	}
+}
+
+func getChunkSymbols(bySymbol map[string]chunker.Chunk) []string {
+	symbols := make([]string, 0, len(bySymbol))
+	for s := range bySymbol {
+		symbols = append(symbols, s)
+	}
+	return symbols
 }
 
 var sampleTypeScript = []byte(`export function add(a: number, b: number): number {

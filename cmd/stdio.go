@@ -141,14 +141,8 @@ func (ic *indexerCache) getOrCreate(projectPath string) (*index.Indexer, error) 
 // Uses Out=any so the SDK does not set StructuredContent — the LLM sees
 // only the plaintext in Content.
 func (ic *indexerCache) handleSemanticSearch(ctx context.Context, req *mcp.CallToolRequest, input SemanticSearchInput) (*mcp.CallToolResult, any, error) {
-	if input.Path == "" {
-		return nil, nil, fmt.Errorf("path is required")
-	}
-	if input.Query == "" {
-		return nil, nil, fmt.Errorf("query is required")
-	}
-	if input.Limit <= 0 {
-		input.Limit = 20
+	if err := validateSearchInput(&input); err != nil {
+		return nil, nil, err
 	}
 
 	idx, err := ic.getOrCreate(input.Path)
@@ -156,67 +150,25 @@ func (ic *indexerCache) handleSemanticSearch(ctx context.Context, req *mcp.CallT
 		return nil, nil, fmt.Errorf("get indexer: %w", err)
 	}
 
-	// Build a progress callback if the client sent a progress token.
-	var progress index.ProgressFunc
-	if token := req.Params.GetProgressToken(); token != nil {
-		progress = func(current, total int, message string) {
-			_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
-				ProgressToken: token,
-				Progress:      float64(current),
-				Total:         float64(total),
-				Message:       message,
-			})
-		}
-	}
+	progress := buildProgressFunc(ctx, req)
 
-	var out SemanticSearchOutput
-	if input.ForceReindex {
-		stats, err := idx.Index(ctx, input.Path, true, progress)
-		if err != nil {
-			return nil, nil, fmt.Errorf("force reindex: %w", err)
-		}
-		out.Reindexed = true
-		out.IndexedFiles = stats.IndexedFiles
-	} else {
-		reindexed, stats, err := idx.EnsureFresh(ctx, input.Path, progress)
-		if err != nil {
-			return nil, nil, fmt.Errorf("ensure fresh: %w", err)
-		}
-		out.Reindexed = reindexed
-		if reindexed {
-			out.IndexedFiles = stats.IndexedFiles
-		}
-	}
-
-	// Embed the query text.
-	vecs, err := ic.embedder.Embed(ctx, []string{input.Query})
+	out, err := ic.ensureIndexed(ctx, idx, input, progress)
 	if err != nil {
-		return nil, nil, fmt.Errorf("embed query: %w", err)
-	}
-	if len(vecs) == 0 {
-		return nil, nil, fmt.Errorf("embedder returned no vectors")
-	}
-	queryVec := vecs[0]
-
-	// Convert min_score to max distance for SQL filtering.
-	var maxDistance float64
-	if input.MinScore != nil {
-		if *input.MinScore > -1 {
-			maxDistance = 1.0 - *input.MinScore
-		}
-		// if *input.MinScore == -1: maxDistance stays 0 = no filter
-	} else {
-		// Default: 0.5 min_score
-		maxDistance = 0.5
+		return nil, nil, err
 	}
 
-	// Search the index.
+	queryVec, err := ic.embedQuery(ctx, input.Query)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	maxDistance := computeMaxDistance(input.MinScore)
+
 	results, err := idx.Search(ctx, input.Path, queryVec, input.Limit, maxDistance)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search: %w", err)
 	}
 
-	// Map store.SearchResult to SearchResultItem with code snippets.
 	out.Results = make([]SearchResultItem, len(results))
 	snippets := extractSnippets(input.Path, results)
 	for i, r := range results {
@@ -231,11 +183,82 @@ func (ic *indexerCache) handleSemanticSearch(ctx context.Context, req *mcp.CallT
 		}
 	}
 
-	// Return plaintext only — no StructuredContent.
 	text := formatSearchResults(input.Path, out)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
 	}, nil, nil
+}
+
+func validateSearchInput(input *SemanticSearchInput) error {
+	if input.Path == "" {
+		return fmt.Errorf("path is required")
+	}
+	if input.Query == "" {
+		return fmt.Errorf("query is required")
+	}
+	if input.Limit <= 0 {
+		input.Limit = 20
+	}
+	return nil
+}
+
+func buildProgressFunc(ctx context.Context, req *mcp.CallToolRequest) index.ProgressFunc {
+	token := req.Params.GetProgressToken()
+	if token == nil {
+		return nil
+	}
+	return func(current, total int, message string) {
+		_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
+			ProgressToken: token,
+			Progress:      float64(current),
+			Total:         float64(total),
+			Message:       message,
+		})
+	}
+}
+
+func (ic *indexerCache) ensureIndexed(ctx context.Context, idx *index.Indexer, input SemanticSearchInput, progress index.ProgressFunc) (SemanticSearchOutput, error) {
+	out := SemanticSearchOutput{}
+	if input.ForceReindex {
+		stats, err := idx.Index(ctx, input.Path, true, progress)
+		if err != nil {
+			return out, fmt.Errorf("force reindex: %w", err)
+		}
+		out.Reindexed = true
+		out.IndexedFiles = stats.IndexedFiles
+		return out, nil
+	}
+
+	reindexed, stats, err := idx.EnsureFresh(ctx, input.Path, progress)
+	if err != nil {
+		return out, fmt.Errorf("ensure fresh: %w", err)
+	}
+	out.Reindexed = reindexed
+	if reindexed {
+		out.IndexedFiles = stats.IndexedFiles
+	}
+	return out, nil
+}
+
+func (ic *indexerCache) embedQuery(ctx context.Context, query string) ([]float32, error) {
+	vecs, err := ic.embedder.Embed(ctx, []string{query})
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
+	}
+	if len(vecs) == 0 {
+		return nil, fmt.Errorf("embedder returned no vectors")
+	}
+	return vecs[0], nil
+}
+
+func computeMaxDistance(minScore *float64) float64 {
+	if minScore == nil {
+		return 0.5 // Default: 0.5 min_score
+	}
+	if *minScore > -1 {
+		return 1.0 - *minScore
+	}
+	return 0 // -1 means no filter
 }
 
 // handleIndexStatus is the tool handler for the index_status tool.
@@ -280,62 +303,77 @@ func (ic *indexerCache) handleIndexStatus(_ context.Context, _ *mcp.CallToolRequ
 // specified by each search result. Returns one string per result (empty on read error).
 func extractSnippets(projectPath string, results []store.SearchResult) []string {
 	snippets := make([]string, len(results))
+	filesByPath := groupResultsByFile(results)
 
-	// Group results by file to read each file at most once.
-	type resultRef struct {
-		idx       int
-		startLine int
-		endLine   int
+	for filePath, refs := range filesByPath {
+		lines := readFileLines(projectPath, filePath)
+		extractForFile(snippets, lines, refs)
 	}
+
+	return snippets
+}
+
+type resultRef struct {
+	idx       int
+	startLine int
+	endLine   int
+}
+
+func groupResultsByFile(results []store.SearchResult) map[string][]resultRef {
 	byFile := make(map[string][]resultRef)
 	for i, r := range results {
 		byFile[r.FilePath] = append(byFile[r.FilePath], resultRef{i, r.StartLine, r.EndLine})
 	}
+	return byFile
+}
 
-	for filePath, refs := range byFile {
-		absPath := filepath.Join(projectPath, filePath)
-		f, err := os.Open(absPath)
-		if err != nil {
-			continue
-		}
+func readFileLines(projectPath, filePath string) []string {
+	absPath := filepath.Join(projectPath, filePath)
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
 
-		// Find the max line we need.
-		maxLine := 0
-		for _, ref := range refs {
-			if ref.endLine > maxLine {
-				maxLine = ref.endLine
-			}
-		}
-
-		// Read lines up to maxLine.
-		var lines []string
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			lines = append(lines, scanner.Text())
-			if len(lines) >= maxLine {
-				break
-			}
-		}
-		_ = f.Close()
-
-		// Extract snippets for each ref.
-		for _, ref := range refs {
-			start := ref.startLine - 1 // 1-based to 0-based
-			end := ref.endLine
-			if start < 0 {
-				start = 0
-			}
-			if end > len(lines) {
-				end = len(lines)
-			}
-			if start >= end {
-				continue
-			}
-			snippets[ref.idx] = strings.Join(lines[start:end], "\n")
-		}
+	// Find max line first to limit reads
+	maxLine := 0
+	scanner := bufio.NewScanner(f)
+	for i := 1; scanner.Scan(); i++ {
+		maxLine = i
 	}
 
-	return snippets
+	// Re-open and read up to maxLine
+	f2, err := os.Open(absPath)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f2.Close() }()
+
+	var lines []string
+	scanner = bufio.NewScanner(f2)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+		if len(lines) >= maxLine {
+			break
+		}
+	}
+	return lines
+}
+
+func extractForFile(snippets []string, lines []string, refs []resultRef) {
+	for _, ref := range refs {
+		start, end := normalizeLineRange(ref.startLine, ref.endLine, len(lines))
+		if start >= end {
+			continue
+		}
+		snippets[ref.idx] = strings.Join(lines[start:end], "\n")
+	}
+}
+
+func normalizeLineRange(startLine, endLine, totalLines int) (int, int) {
+	start := max(startLine-1, 0)
+	end := min(endLine, totalLines)
+	return start, end
 }
 
 // formatSearchResults builds a compact plaintext representation of search
