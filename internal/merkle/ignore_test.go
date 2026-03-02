@@ -131,33 +131,33 @@ func TestMakeSkip_NestedGitignore(t *testing.T) {
 	}
 }
 
-func TestMakeSkip_AgentIndexIgnore(t *testing.T) {
+func TestMakeSkip_LumenIgnore(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, ".agentindexignore", "generated/\n*.pb.go\n")
+	writeFile(t, dir, ".lumenignore", "generated/\n*.pb.go\n")
 
 	skip := MakeSkip(dir, []string{".go"})
 
 	if !skip("generated", true) {
-		t.Error("expected generated/ to be skipped via .agentindexignore")
+		t.Error("expected generated/ to be skipped via .lumenignore")
 	}
 	if !skip("foo.pb.go", false) {
-		t.Error("expected foo.pb.go to be skipped via .agentindexignore")
+		t.Error("expected foo.pb.go to be skipped via .lumenignore")
 	}
 	if skip("main.go", false) {
 		t.Error("expected main.go to pass")
 	}
 }
 
-func TestMakeSkip_NestedAgentIndexIgnore(t *testing.T) {
+func TestMakeSkip_NestedLumenIgnore(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "api/.agentindexignore", "mock_*.go\n")
+	writeFile(t, dir, "api/.lumenignore", "mock_*.go\n")
 	writeFile(t, dir, "api/handler.go", "package api\n")
 	writeFile(t, dir, "api/mock_handler.go", "package api\n")
 
 	skip := MakeSkip(dir, []string{".go"})
 
 	if !skip("api/mock_handler.go", false) {
-		t.Error("expected api/mock_handler.go to be skipped via nested .agentindexignore")
+		t.Error("expected api/mock_handler.go to be skipped via nested .lumenignore")
 	}
 	if skip("api/handler.go", false) {
 		t.Error("expected api/handler.go to pass")
@@ -221,7 +221,7 @@ func TestMakeSkip_GitattributesNonGenerated(t *testing.T) {
 func TestMakeSkip_AllLayersCombined(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, ".gitignore", "*.log\n")
-	writeFile(t, dir, ".agentindexignore", "scratch/\n")
+	writeFile(t, dir, ".lumenignore", "scratch/\n")
 	writeFile(t, dir, ".gitattributes", "generated.go linguist-generated\n")
 	writeFile(t, dir, "sub/.gitignore", "tmp_*.go\n")
 
@@ -239,9 +239,9 @@ func TestMakeSkip_AllLayersCombined(t *testing.T) {
 	if !skip("sub/tmp_data.go", false) {
 		t.Error("expected sub/tmp_data.go to be skipped (nested .gitignore)")
 	}
-	// Layer 3: .agentindexignore
+	// Layer 3: .lumenignore
 	if !skip("scratch", true) {
-		t.Error("expected scratch/ to be skipped (.agentindexignore)")
+		t.Error("expected scratch/ to be skipped (.lumenignore)")
 	}
 	// Layer 4: .gitattributes
 	if !skip("generated.go", false) {

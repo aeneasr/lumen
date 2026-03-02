@@ -54,7 +54,7 @@ var SkipDirs = map[string]bool{
 // dirIgnore holds compiled matchers for a single directory level.
 type dirIgnore struct {
 	gitignore        *ignore.GitIgnore // from .gitignore
-	agentIndexIgnore *ignore.GitIgnore // from .agentindexignore
+	lumenIgnore *ignore.GitIgnore // from .lumenignore
 	gitattributes    *ignore.GitIgnore // linguist-generated patterns from .gitattributes
 }
 
@@ -97,8 +97,8 @@ func (t *IgnoreTree) loadDir(dirRel string) *dirIgnore {
 	if gi, err := ignore.CompileIgnoreFile(filepath.Join(absDir, ".gitignore")); err == nil {
 		d.gitignore = gi
 	}
-	if ai, err := ignore.CompileIgnoreFile(filepath.Join(absDir, ".agentindexignore")); err == nil {
-		d.agentIndexIgnore = ai
+	if ai, err := ignore.CompileIgnoreFile(filepath.Join(absDir, ".lumenignore")); err == nil {
+		d.lumenIgnore = ai
 	}
 	if ga := parseLinguistGenerated(filepath.Join(absDir, ".gitattributes")); ga != nil {
 		d.gitattributes = ga
@@ -109,7 +109,7 @@ func (t *IgnoreTree) loadDir(dirRel string) *dirIgnore {
 }
 
 // shouldSkip implements SkipFunc. It checks the five filtering layers:
-// 1. SkipDirs, 2. .gitignore, 3. .agentindexignore, 4. .gitattributes, 5. extension.
+// 1. SkipDirs, 2. .gitignore, 3. .lumenignore, 4. .gitattributes, 5. extension.
 func (t *IgnoreTree) shouldSkip(relPath string, isDir bool) bool {
 	if isDir && SkipDirs[filepath.Base(relPath)] {
 		return true
@@ -140,7 +140,7 @@ func (t *IgnoreTree) checkIgnoreRules(relPath, anc string, isDir bool) bool {
 	if d.gitignore != nil && d.gitignore.MatchesPath(matchPath) {
 		return true
 	}
-	if d.agentIndexIgnore != nil && d.agentIndexIgnore.MatchesPath(matchPath) {
+	if d.lumenIgnore != nil && d.lumenIgnore.MatchesPath(matchPath) {
 		return true
 	}
 	if !isDir && d.gitattributes != nil && d.gitattributes.MatchesPath(pathFromAnc) {
@@ -216,7 +216,7 @@ func parseLinguistGenerated(path string) *ignore.GitIgnore {
 // MakeSkip returns a SkipFunc that layers five filters:
 //  1. SkipDirs — map lookup on directory basename (cheapest check)
 //  2. .gitignore — root + nested, hierarchical matching
-//  3. .agentindexignore — root + nested, hierarchical matching
+//  3. .lumenignore — root + nested, hierarchical matching
 //  4. .gitattributes — linguist-generated patterns, root + nested
 //  5. Extension filter — only index files whose extension is in exts
 //
