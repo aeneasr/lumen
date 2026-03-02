@@ -52,8 +52,8 @@ func startLangServer(t *testing.T) *mcp.ClientSession {
 	cmd := exec.Command(serverBinary, "stdio")
 	cmd.Env = []string{
 		"OLLAMA_HOST=" + ollamaHost,
-		"AGENT_INDEX_EMBED_MODEL=all-minilm",
-		"AGENT_INDEX_MAX_CHUNK_TOKENS=200",
+		"LUMEN_EMBED_MODEL=all-minilm",
+		"LUMEN_MAX_CHUNK_TOKENS=200",
 		"XDG_DATA_HOME=" + dataHome,
 		"HOME=" + os.Getenv("HOME"),
 		"PATH=" + os.Getenv("PATH"),

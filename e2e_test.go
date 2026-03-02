@@ -109,7 +109,7 @@ func startServerWithOpts(t *testing.T, opts *mcp.ClientOptions) *mcp.ClientSessi
 	cmd := exec.Command(serverBinary, "stdio")
 	cmd.Env = []string{
 		"OLLAMA_HOST=" + ollamaHost,
-		"AGENT_INDEX_EMBED_MODEL=all-minilm",
+		"LUMEN_EMBED_MODEL=all-minilm",
 		"XDG_DATA_HOME=" + dataHome,
 		"HOME=" + os.Getenv("HOME"),
 		"PATH=" + os.Getenv("PATH"),
