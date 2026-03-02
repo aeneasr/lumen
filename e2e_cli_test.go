@@ -31,7 +31,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// runCLI runs the agent-index binary with the given args and returns stdout, stderr, and any error.
+// runCLI runs the lumen binary with the given args and returns stdout, stderr, and any error.
 func runCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 
@@ -39,7 +39,7 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	return runCLIWithDataHome(t, dataHome, args...)
 }
 
-// runCLIWithDataHome runs the agent-index binary using a specific XDG_DATA_HOME.
+// runCLIWithDataHome runs the lumen binary using a specific XDG_DATA_HOME.
 func runCLIWithDataHome(t *testing.T, dataHome string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 

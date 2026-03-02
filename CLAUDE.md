@@ -1,9 +1,9 @@
-# CLAUDE.md — agent-index
+# CLAUDE.md — lumen
 
 ## Go Standards
 
 - **Version**: Go 1.26+
-- **Build**: `CGO_ENABLED=1 go build -o agent-index .` (sqlite-vec requires CGO)
+- **Build**: `CGO_ENABLED=1 go build -o lumen .` (sqlite-vec requires CGO)
 - **Format**: `gofmt` (enforced in CI)
 - **Lint**: `golangci-lint run` (zero issues, see `.golangci.yml`)
 - **Vet**: `go vet ./...` (external dependency warnings OK)
@@ -92,7 +92,7 @@ make install      # Install binary
 
 - **Merkle tree for diffs**: Avoid re-indexing unchanged code
 - **Model name in DB path**: Different models → separate indexes (SHA-256 hash of path + model name)
-- **5-layer file filtering**: SkipDirs → .gitignore → .agentindexignore → .gitattributes → extension
-- **Chunk splitting at line boundaries**: Oversized chunks split at `AGENT_INDEX_MAX_CHUNK_TOKENS` (512 default)
+- **5-layer file filtering**: SkipDirs → .gitignore → .lumenignore → .gitattributes → extension
+- **Chunk splitting at line boundaries**: Oversized chunks split at `LUMEN_MAX_CHUNK_TOKENS` (512 default)
 - **32-batch embedding**: Balance memory vs. API round-trips
 - **Cosine distance KNN**: Normalized for semantic similarity

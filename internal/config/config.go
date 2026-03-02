@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package config provides shared configuration for the agent-index CLI.
+// Package config provides shared configuration for the lumen CLI.
 package config
 
 import (
@@ -32,7 +32,7 @@ const (
 	BackendLMStudio = "lmstudio"
 )
 
-// Config holds the resolved configuration for the agent-index process.
+// Config holds the resolved configuration for the lumen process.
 type Config struct {
 	Model          string
 	Dims           int
