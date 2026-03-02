@@ -44,7 +44,7 @@ func NewOllama(model string, dimensions int, contextLength int, baseURL string) 
 		contextLength: contextLength,
 		baseURL:       baseURL,
 		client: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: 10 * time.Minute,
 		},
 	}, nil
 }

@@ -124,20 +124,30 @@ declarations are skipped (package chunks pollute search results).
 
 ### File filtering
 
-Three layers, applied in order during tree walks:
+Five layers, applied in order during tree walks:
 
 1. **`SkipDirs`** — hardcoded set of ~30 directory basenames always skipped
    (`.git`, `vendor`, `node_modules`, `__pycache__`, `target`, `.venv`, `dist`,
    IDE dirs, etc.). Cheapest check (map lookup).
-2. **`.gitignore`** — root `.gitignore` is read via `sabhiram/go-gitignore` if
-   present. Supports `*` globs, `**`, directory patterns (`build/`), negation
-   (`!important.gen.go`), and comments. Nested `.gitignore` files are not yet
-   supported.
-3. **Extension filter** — only files with extensions matching the chunker's
+2. **`.gitignore`** — root + nested, hierarchical matching via
+   `sabhiram/go-gitignore`. Supports `*` globs, `**`, directory patterns
+   (`build/`), negation (`!important.gen.go`), and comments. Nested
+   `.gitignore` files in subdirectories are discovered lazily during the walk
+   and cached.
+3. **`.agentindexignore`** — same syntax as `.gitignore`, root + nested. Allows
+   excluding files from indexing without modifying `.gitignore`. Loaded at every
+   directory level alongside `.gitignore`.
+4. **`.gitattributes`** — patterns marked with `linguist-generated` or
+   `linguist-generated=true` are treated as ignore rules. Root + nested,
+   hierarchical matching. `linguist-generated=false` is explicitly not matched.
+5. **Extension filter** — only files with extensions matching the chunker's
    supported languages are indexed.
 
-`MakeSkip(rootDir, exts)` composes all three layers into a single `SkipFunc`. If
-no `.gitignore` exists, the gitignore layer is silently skipped.
+`MakeSkip(rootDir, exts)` creates an `IgnoreTree` that lazily discovers and
+caches ignore rules as `filepath.WalkDir` traverses directories. The `SkipFunc`
+signature is unchanged — callers need zero modifications. For path `a/b/c/foo.go`,
+matchers are checked at each ancestor level (`""`, `"a"`, `"a/b"`, `"a/b/c"`),
+each receiving the path relative to its directory.
 
 ### Incremental indexing
 
@@ -237,7 +247,5 @@ CGO_ENABLED=1 go build -o agent-index .
   automatically, no collision.
 - **`indexWithTree` internal method**: Eliminated the double Merkle tree build
   between `EnsureFresh` and `Index`.
-- **Root `.gitignore` only**: Covers the vast majority of projects. Nested
-  `.gitignore` support can be added later if needed.
 - **`SkipDirs` is a shared map**: `DefaultSkip`, `MakeExtSkip`, and `MakeSkip`
   all use `SkipDirs` for directory filtering. Single source of truth.

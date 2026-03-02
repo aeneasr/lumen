@@ -3,35 +3,51 @@
 set -eufo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
-FIXTURES="$REPO/testdata/fixtures/go"
+FIXTURES_GO="$REPO/testdata/fixtures/go"
+FIXTURES_PY="$REPO/testdata/fixtures/python"
+FIXTURES_TS="$REPO/testdata/fixtures/ts"
 BINARY="$REPO/agent-index"
 
-# ── Questions ─────────────────────────────────────────────────────────────────
+# ── Questions (3 languages × 3 difficulty levels) ────────────────────────────
 QUESTIONS=(
-  # EASY: single-file, direct lookup
+  # Go (Prometheus fixtures)
   "What label matcher types are available and how is a Matcher created? Show the type definitions and constructor."
-  # MEDIUM: spans 2–3 files, requires understanding algorithm
   "How does histogram bucket counting work? Show me the relevant function signatures."
-  # HARD: large codebase, multiple files, complex interactions
   "How does TSDB compaction work end-to-end? Explain the Compactor interface, LeveledCompactor, and how the DB triggers compaction. Show relevant types, interfaces, and key method signatures."
-  # VERY-HARD: spans engine.go, functions.go, ast.go, alerting.go, recording.go
-  "How does PromQL query evaluation work? Explain the evaluation engine, how functions are registered and called, how the AST nodes are evaluated, and how alert and recording rules trigger evaluations. Show key interfaces, types, and function signatures."
-  # VERY-HARD: spans scrape.go, manager.go, prom_registry.go, prom_counter.go, prom_gauge.go, textparse_interface.go, model_value.go
-  "How does Prometheus metrics scraping and collection work? Explain how the scrape manager coordinates scrapers, how metrics are parsed from the text format, how counters and gauges are tracked internally, and how the registry manages metric families. Show the key types and the data flow from scrape to in-memory storage."
+  # Python (Django + Flask fixtures)
+  "How does the Django Permission model work? Show the Permission class, its fields, the PermissionManager, and the get_by_natural_key method."
+  "How does Flask configuration loading work? Explain the Config class, how it loads from files, environment variables, and Python objects. Show the key methods and class hierarchy."
+  "How does the Django QuerySet evaluation and filtering pipeline work? Explain QuerySet chaining, lazy evaluation, the Query class, how lookups and filters are compiled into SQL, and how the Manager ties it all together. Show key classes and method signatures."
+  # TypeScript (VSCode base library fixtures)
+  "What is the IDisposable interface and how does the Disposable base class work? Show the interface, the base class, and how DisposableStore manages multiple disposables."
+  "How does the event emitter system work? Explain the Event interface, the Emitter class, event composition (map, filter, debounce), and how events integrate with disposables. Show key types and patterns."
+  "How do async operations, cancellation, and resource lifecycle management work together? Explain CancelablePromise, CancellationToken, the async utilities (throttle, debounce, retry), how they integrate with the disposable lifecycle system, and how event-driven patterns compose with async flows. Show key interfaces and class relationships."
 )
 Q_SLUGS=(
-  "label-matcher"
-  "histogram"
-  "tsdb-compaction"
-  "promql-engine"
-  "scrape-pipeline"
+  "go-label-matcher"
+  "go-histogram"
+  "go-tsdb-compaction"
+  "py-permissions"
+  "py-flask-config"
+  "py-django-queryset"
+  "ts-disposable"
+  "ts-event-emitter"
+  "ts-async-lifecycle"
+)
+Q_LANG=(
+  "go" "go" "go"
+  "python" "python" "python"
+  "typescript" "typescript" "typescript"
+)
+Q_FIXTURES=(
+  "$FIXTURES_GO" "$FIXTURES_GO" "$FIXTURES_GO"
+  "$FIXTURES_PY" "$FIXTURES_PY" "$FIXTURES_PY"
+  "$FIXTURES_TS" "$FIXTURES_TS" "$FIXTURES_TS"
 )
 Q_DIFFICULTY=(
-  "easy"
-  "medium"
-  "hard"
-  "very-hard"
-  "very-hard"
+  "easy" "medium" "hard"
+  "easy" "medium" "hard"
+  "easy" "medium" "hard"
 )
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -42,13 +58,27 @@ FILTER_QUESTIONS=()
 # ── CLI flags ─────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --model)    FILTER_MODELS+=("$2");    shift 2 ;;
-    --question) FILTER_QUESTIONS+=("$2"); shift 2 ;;
+    --claude-model) FILTER_MODELS+=("$2");    shift 2 ;;
+    --question)     FILTER_QUESTIONS+=("$2"); shift 2 ;;
+    --embed-model)  EMBED_MODEL="$2";         shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
 
 [[ ${#FILTER_MODELS[@]} -gt 0 ]] && MODELS=("${FILTER_MODELS[@]}")
+
+# ── Embedding model / backend ──────────────────────────────────────────────
+EMBED_MODEL="${EMBED_MODEL:-ordis/jina-embeddings-v2-base-code}"
+
+# Auto-detect backend: nomic-ai/* → lmstudio, everything else → ollama
+case "$EMBED_MODEL" in
+  nomic-ai/*) EMBED_BACKEND="lmstudio" ;;
+  *)          EMBED_BACKEND="ollama"   ;;
+esac
+
+# Model slug for directory name: text after last '/', colons replaced with '-'
+MODEL_SLUG="${EMBED_MODEL##*/}"
+MODEL_SLUG="${MODEL_SLUG//:/-}"
 
 # Build filtered question index
 Q_INDICES=()
@@ -71,7 +101,10 @@ CGO_ENABLED=1 go build -o agent-index .
 
 # ── Index ─────────────────────────────────────────────────────────────────────
 echo "Indexing fixtures..."
-AGENT_INDEX_BACKEND=lmstudio ./agent-index index "$FIXTURES" 2>&1 | tail -1
+for fx_dir in "$FIXTURES_GO" "$FIXTURES_PY" "$FIXTURES_TS"; do
+  AGENT_INDEX_BACKEND="$EMBED_BACKEND" AGENT_INDEX_EMBED_MODEL="$EMBED_MODEL" \
+    ./agent-index index "$fx_dir" 2>&1 | tail -1
+done
 
 # ── MCP configs ───────────────────────────────────────────────────────────────
 MCP_ENABLED=$(mktemp /tmp/bench-mcp-enabled-XXXXXX).json
@@ -79,19 +112,21 @@ MCP_EMPTY=$(mktemp /tmp/bench-mcp-empty-XXXXXX).json
 trap 'rm -f "$MCP_ENABLED" "$MCP_EMPTY"' EXIT
 
 cat > "$MCP_ENABLED" <<EOF
-{"mcpServers":{"agent-index":{"command":"$BINARY","args":["stdio"],"env":{"AGENT_INDEX_BACKEND":"lmstudio"}}}}
+{"mcpServers":{"agent-index":{"command":"$BINARY","args":["stdio"],"env":{"AGENT_INDEX_BACKEND":"$EMBED_BACKEND","AGENT_INDEX_EMBED_MODEL":"$EMBED_MODEL"}}}}
 EOF
 echo '{"mcpServers":{}}' > "$MCP_EMPTY"
 
 # ── Results dir ───────────────────────────────────────────────────────────────
-RESULTS_DIR="$REPO/bench-results/$(date +%Y%m%d-%H%M%S)"
+RESULTS_DIR="$REPO/bench-results/$(date +%Y%m%d-%H%M%S)-${EMBED_BACKEND}-${MODEL_SLUG}"
 mkdir -p "$RESULTS_DIR"
 
 # ── Run one scenario ──────────────────────────────────────────────────────────
 run() {
   local mcp_cfg="$1" model="$2" q_idx="$3" scenario="$4" disable_builtin_tools="$5"
+  local lang="${Q_LANG[$q_idx]}"
+  local fixtures="${Q_FIXTURES[$q_idx]}"
   local slug="${Q_SLUGS[$q_idx]}-${model}-${scenario}"
-  local prompt="The Go project is at $FIXTURES. Answer this question about the code: ${QUESTIONS[$q_idx]}"
+  local prompt="The ${lang} project is at $fixtures. Answer this question about the code: ${QUESTIONS[$q_idx]}"
   local raw="$RESULTS_DIR/$slug-raw.jsonl"
   local answer_file="$RESULTS_DIR/$slug-answer.txt"
 
@@ -114,6 +149,9 @@ run() {
     -p "$prompt" \
   > "$raw" 2>&1 || true
 
+  # Strip home directory and username from raw snapshots to avoid PII in committed results
+  [[ -f "$raw" ]] && sed -i '' -e "s|${HOME}|~|g" -e "s|${USER}|<user>|g" "$raw"
+
   local result_line
   result_line=$(grep -m1 '"type":"result"' "$raw" || true)
   if [[ -n "$result_line" ]]; then
@@ -125,7 +163,7 @@ run() {
     cache_created=$(echo "$result_line" | jq -r '.usage.cache_creation_input_tokens // 0')
     output_tokens=$(echo "$result_line" | jq -r '.usage.output_tokens // 0')
 
-    echo "$result_line" | jq -r '.result' > "$answer_file"
+    echo "$result_line" | jq -r '.result' | sed -e "s|${HOME}|~|g" -e "s|${USER}|<user>|g" > "$answer_file"
     echo "{\"cost_usd\":$cost,\"duration_ms\":$duration_ms,\"input_tokens\":$input_tokens,\"cache_read\":$cache_read,\"cache_created\":$cache_created,\"output_tokens\":$output_tokens}" \
       > "$RESULTS_DIR/$slug-metrics.json"
 
@@ -192,7 +230,7 @@ $(cat "$af")
 
   # Brief verdict for summary (content quality + efficiency)
   claude -p --model claude-opus-4-6 \
-    "You are a judge evaluating AI answers to a Go codebase question. Be concise.
+    "You are a judge evaluating AI answers to a codebase question. Be concise.
 
 Question: $question
 
@@ -217,7 +255,7 @@ Example: **Winner: sonnet/mcp-only**" \
 
   # Detailed analysis for detail report
   claude -p --model claude-opus-4-6 \
-    "You are a judge evaluating AI answers to a question about a Go codebase.
+    "You are a judge evaluating AI answers to a question about a codebase.
 
 Question: $question
 
@@ -280,8 +318,8 @@ emit_overall_stats() {
 emit_overall_comparison() {
   echo "## Overall: Algorithm Comparison"
   echo ""
-  echo "| Question | Difficulty | 🏆 Winner | Runner-up |"
-  echo "|----------|------------|-----------|-----------|"
+  echo "| Question | Language | Difficulty | 🏆 Winner | Runner-up |"
+  echo "|----------|----------|------------|-----------|-----------|"
 
   local wins_baseline=0
   local wins_mcp_only=0
@@ -325,7 +363,8 @@ emit_overall_comparison() {
       done
     done
 
-    echo "| $slug | $difficulty | $winner | $runner_up |"
+    local lang="${Q_LANG[$q_idx]}"
+    echo "| $slug | $lang | $difficulty | $winner | $runner_up |"
   done
 
   echo ""
@@ -386,7 +425,8 @@ generate_reports() {
       local difficulty="${Q_DIFFICULTY[$q_idx]}"
       local question="${QUESTIONS[$q_idx]}"
 
-      echo "## $slug [$difficulty]"
+      local lang="${Q_LANG[$q_idx]}"
+      echo "## $slug [$lang / $difficulty]"
       echo ""
       echo "> $question"
       echo ""
@@ -452,7 +492,8 @@ generate_reports() {
 
       echo "---"
       echo ""
-      echo "## $slug [$difficulty]"
+      local lang="${Q_LANG[$q_idx]}"
+      echo "## $slug [$lang / $difficulty]"
       echo ""
       echo "**Question:** $question"
       echo ""

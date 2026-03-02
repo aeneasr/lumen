@@ -44,7 +44,7 @@ func NewLMStudio(model string, dimensions int, baseURL string) (*LMStudio, error
 		dimensions: dimensions,
 		baseURL:    baseURL,
 		client: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: 10 * time.Minute,
 		},
 	}, nil
 }

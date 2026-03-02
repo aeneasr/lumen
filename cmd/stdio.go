@@ -417,7 +417,9 @@ Use this tool for ANY code search task, including:
 - Discovering how a system works or where logic lives
 - Finding relevant code before making changes
 
-This tool understands code semantics — it finds results that keyword search (grep) would miss because it matches meaning, not just text. Prefer this over grep/glob for code discovery.`,
+This tool understands code semantics — it finds results that keyword search (grep) would miss because it matches meaning, not just text. Prefer this over grep/glob for code discovery.
+
+If a search returns no results, retry with a lower min_score (e.g. 0.0 or -1) before trying a different query — the embedding model may score the match below the default threshold.`,
 	}, indexers.handleSemanticSearch)
 
 	mcp.AddTool(server, &mcp.Tool{

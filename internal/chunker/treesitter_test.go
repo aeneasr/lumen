@@ -113,6 +113,10 @@ export class Calculator {
   }
 }
 
+export abstract class Base {
+  abstract doWork(): void;
+}
+
 export interface Shape {
   area(): number;
 }
@@ -126,6 +130,7 @@ func TestTreeSitterChunker_TypeScript(t *testing.T) {
 		Queries: []chunker.QueryDef{
 			{Pattern: `(function_declaration name: (identifier) @name) @decl`, Kind: "function"},
 			{Pattern: `(class_declaration name: (type_identifier) @name) @decl`, Kind: "type"},
+			{Pattern: `(abstract_class_declaration name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(interface_declaration name: (type_identifier) @name) @decl`, Kind: "interface"},
 			{Pattern: `(type_alias_declaration name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(method_definition name: (property_identifier) @name) @decl`, Kind: "method"},
@@ -160,6 +165,7 @@ func TestTreeSitterChunker_TypeScript(t *testing.T) {
 
 	check("add", "function")
 	check("Calculator", "type")
+	check("Base", "type")
 	check("multiply", "method")
 	check("Shape", "interface")
 	check("Color", "type")

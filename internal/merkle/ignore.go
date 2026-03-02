@@ -15,7 +15,11 @@
 package merkle
 
 import (
+	"bufio"
+	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	ignore "github.com/sabhiram/go-gitignore"
 )
@@ -47,35 +51,185 @@ var SkipDirs = map[string]bool{
 	"testdata": true,
 }
 
-// MakeSkip returns a SkipFunc that layers three filters:
-//  1. SkipDirs — map lookup on directory basename (cheapest check)
-//  2. .gitignore patterns from rootDir/.gitignore (if the file exists)
-//  3. Extension filter — only index files whose extension is in exts
-//
-// If no .gitignore exists at rootDir, the gitignore layer is silently skipped.
-func MakeSkip(rootDir string, exts []string) SkipFunc {
+// dirIgnore holds compiled matchers for a single directory level.
+type dirIgnore struct {
+	gitignore        *ignore.GitIgnore // from .gitignore
+	agentIndexIgnore *ignore.GitIgnore // from .agentindexignore
+	gitattributes    *ignore.GitIgnore // linguist-generated patterns from .gitattributes
+}
+
+// IgnoreTree manages hierarchical ignore rules, lazily loading them as
+// filepath.WalkDir traverses directories. It is safe for concurrent use.
+type IgnoreTree struct {
+	rootDir string
+	extSet  map[string]bool
+
+	mu    sync.Mutex
+	dirs  map[string]*dirIgnore // keyed by relative dir path ("" = root)
+}
+
+// NewIgnoreTree creates an IgnoreTree rooted at rootDir that filters by the
+// given file extensions. Root-level ignore files are loaded eagerly.
+func NewIgnoreTree(rootDir string, exts []string) *IgnoreTree {
 	extSet := make(map[string]bool, len(exts))
 	for _, ext := range exts {
 		extSet[ext] = true
 	}
+	t := &IgnoreTree{
+		rootDir: rootDir,
+		extSet:  extSet,
+		dirs:    make(map[string]*dirIgnore),
+	}
+	t.loadDir("") // eagerly load root
+	return t
+}
 
-	gitignorePath := filepath.Join(rootDir, ".gitignore")
-	gi, _ := ignore.CompileIgnoreFile(gitignorePath) // nil if file doesn't exist
+// loadDir loads ignore files for a directory (relative path). Must be called
+// with t.mu held.
+func (t *IgnoreTree) loadDir(dirRel string) *dirIgnore {
+	if d, ok := t.dirs[dirRel]; ok {
+		return d
+	}
 
-	return func(relPath string, isDir bool) bool {
-		base := filepath.Base(relPath)
-		if isDir {
-			if SkipDirs[base] {
-				return true
-			}
-			if gi != nil && gi.MatchesPath(relPath+"/") {
-				return true
-			}
-			return false
-		}
-		if gi != nil && gi.MatchesPath(relPath) {
+	absDir := filepath.Join(t.rootDir, dirRel)
+	d := &dirIgnore{}
+
+	if gi, err := ignore.CompileIgnoreFile(filepath.Join(absDir, ".gitignore")); err == nil {
+		d.gitignore = gi
+	}
+	if ai, err := ignore.CompileIgnoreFile(filepath.Join(absDir, ".agentindexignore")); err == nil {
+		d.agentIndexIgnore = ai
+	}
+	if ga := parseLinguistGenerated(filepath.Join(absDir, ".gitattributes")); ga != nil {
+		d.gitattributes = ga
+	}
+
+	t.dirs[dirRel] = d
+	return d
+}
+
+// shouldSkip implements SkipFunc. It checks the five filtering layers:
+// 1. SkipDirs, 2. .gitignore, 3. .agentindexignore, 4. .gitattributes, 5. extension.
+func (t *IgnoreTree) shouldSkip(relPath string, isDir bool) bool {
+	base := filepath.Base(relPath)
+	if isDir {
+		if SkipDirs[base] {
 			return true
 		}
-		return !extSet[filepath.Ext(relPath)]
 	}
+
+	// Walk ancestor chain from root to the file's parent directory.
+	parentDir := filepath.Dir(relPath)
+	if !isDir {
+		// parentDir is correct for files
+	} else {
+		// For directories, check up to and including the parent of relPath.
+		parentDir = filepath.Dir(relPath)
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	ancestors := ancestorDirs(parentDir)
+	for _, anc := range ancestors {
+		d := t.loadDir(anc)
+		// Path relative to this ancestor directory
+		var pathFromAnc string
+		if anc == "" {
+			pathFromAnc = relPath
+		} else {
+			pathFromAnc, _ = filepath.Rel(anc, relPath)
+		}
+
+		// For directories, append "/" for gitignore matching
+		matchPath := pathFromAnc
+		if isDir {
+			matchPath = pathFromAnc + "/"
+		}
+
+		if d.gitignore != nil && d.gitignore.MatchesPath(matchPath) {
+			return true
+		}
+		if d.agentIndexIgnore != nil && d.agentIndexIgnore.MatchesPath(matchPath) {
+			return true
+		}
+		if !isDir && d.gitattributes != nil && d.gitattributes.MatchesPath(pathFromAnc) {
+			return true
+		}
+	}
+
+	// Extension filter (files only)
+	if !isDir {
+		return !t.extSet[filepath.Ext(relPath)]
+	}
+	return false
+}
+
+// ancestorDirs returns the directory hierarchy from root ("") to dirRel.
+// For "a/b/c" it returns ["", "a", "a/b", "a/b/c"].
+// For "." or "" it returns [""].
+func ancestorDirs(dirRel string) []string {
+	if dirRel == "." || dirRel == "" {
+		return []string{""}
+	}
+	parts := strings.Split(filepath.ToSlash(dirRel), "/")
+	result := make([]string, 0, len(parts)+1)
+	result = append(result, "")
+	for i := range parts {
+		result = append(result, filepath.Join(parts[:i+1]...))
+	}
+	return result
+}
+
+// parseLinguistGenerated reads a .gitattributes file and returns a compiled
+// matcher for patterns marked with linguist-generated or linguist-generated=true.
+// Returns nil if the file doesn't exist or contains no such patterns.
+func parseLinguistGenerated(path string) *ignore.GitIgnore {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var patterns []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || line[0] == '#' {
+			continue
+		}
+
+		// Split into pattern and attributes
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pattern := fields[0]
+		for _, attr := range fields[1:] {
+			// Match "linguist-generated" (bare) or "linguist-generated=true"
+			// but NOT "linguist-generated=false" or "-linguist-generated"
+			if attr == "linguist-generated" || attr == "linguist-generated=true" {
+				patterns = append(patterns, pattern)
+				break
+			}
+		}
+	}
+
+	if len(patterns) == 0 {
+		return nil
+	}
+	return ignore.CompileIgnoreLines(patterns...)
+}
+
+// MakeSkip returns a SkipFunc that layers five filters:
+//  1. SkipDirs — map lookup on directory basename (cheapest check)
+//  2. .gitignore — root + nested, hierarchical matching
+//  3. .agentindexignore — root + nested, hierarchical matching
+//  4. .gitattributes — linguist-generated patterns, root + nested
+//  5. Extension filter — only index files whose extension is in exts
+//
+// Ignore files are discovered lazily as the walk proceeds.
+func MakeSkip(rootDir string, exts []string) SkipFunc {
+	tree := NewIgnoreTree(rootDir, exts)
+	return tree.shouldSkip
 }

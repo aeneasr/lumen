@@ -63,6 +63,7 @@ func DefaultLanguages(maxChunkTokens int) map[string]Chunker {
 		Queries: []QueryDef{
 			{Pattern: `(function_declaration name: (identifier) @name) @decl`, Kind: "function"},
 			{Pattern: `(class_declaration name: (type_identifier) @name) @decl`, Kind: "type"},
+			{Pattern: `(abstract_class_declaration name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(interface_declaration name: (type_identifier) @name) @decl`, Kind: "interface"},
 			{Pattern: `(type_alias_declaration name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(method_definition name: (property_identifier) @name) @decl`, Kind: "method"},
@@ -74,6 +75,7 @@ func DefaultLanguages(maxChunkTokens int) map[string]Chunker {
 		Queries: []QueryDef{
 			{Pattern: `(function_declaration name: (identifier) @name) @decl`, Kind: "function"},
 			{Pattern: `(class_declaration name: (type_identifier) @name) @decl`, Kind: "type"},
+			{Pattern: `(abstract_class_declaration name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(interface_declaration name: (type_identifier) @name) @decl`, Kind: "interface"},
 			{Pattern: `(type_alias_declaration name: (type_identifier) @name) @decl`, Kind: "type"},
 			{Pattern: `(method_definition name: (property_identifier) @name) @decl`, Kind: "method"},
