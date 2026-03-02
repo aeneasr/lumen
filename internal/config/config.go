@@ -78,7 +78,7 @@ func Load() (Config, error) {
 func DBPathForProject(projectPath, model string) string {
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(projectPath+"\x00"+model)))
 	dataDir := XDGDataDir()
-	return filepath.Join(dataDir, "agent-index", hash[:16], "index.db")
+	return filepath.Join(dataDir, "lumen", hash[:16], "index.db")
 }
 
 // XDGDataDir returns the XDG data home directory, defaulting to
