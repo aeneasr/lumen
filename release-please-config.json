@@ -9,13 +9,8 @@
       "extra-files": [
         {
           "type": "json",
-          "path": ".claude-plugin/marketplace.json",
-          "jsonpath": "$.metadata.version"
-        },
-        {
-          "type": "json",
-          "path": ".claude-plugin/marketplace.json",
-          "jsonpath": "$.plugins[0].version"
+          "path": ".claude-plugin/plugin.json",
+          "jsonpath": "$.version"
         }
       ]
     }

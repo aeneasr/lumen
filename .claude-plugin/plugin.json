@@ -1,9 +1,10 @@
 {
   "name": "lumen",
-  "description": "Local semantic code search for AI coding agents",
+  "version": "0.0.7",
+  "description": "Precise local semantic code search via MCP. Indexes your codebase with Go AST parsing, embeds with Ollama or LM Studio, and exposes vector search to Claude through an MCP server — no cloud, no npm.",
   "author": {
     "name": "Ory Corp",
-    "url": "https://github.com/ory/lumen"
+    "url": "https://github.com/ory"
   },
   "homepage": "https://github.com/ory/lumen",
   "repository": "https://github.com/ory/lumen",
@@ -15,5 +16,7 @@
     "embeddings",
     "ollama",
     "rag"
-  ]
+  ],
+  "category": "developer-tools",
+  "tags": ["code-search", "mcp", "ai", "local"]
 }
