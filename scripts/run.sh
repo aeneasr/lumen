@@ -33,7 +33,7 @@ done
 if [ -z "$BINARY" ]; then
   BINARY="${PLUGIN_ROOT}/bin/lumen-${OS}-${ARCH}"
   VERSION="${LUMEN_VERSION:-latest}"
-  REPO="aeneasr/lumen"
+  REPO="ory/lumen"
 
   if [ "$VERSION" = "latest" ]; then
     VERSION="$(curl -sfL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
@@ -44,17 +44,13 @@ if [ -z "$BINARY" ]; then
     exit 1
   fi
 
-  ASSET="lumen-${VERSION#v}-${OS}-${ARCH}.tar.gz"
+  ASSET="lumen-${VERSION#v}-${OS}-${ARCH}"
   URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
 
   echo "Downloading lumen ${VERSION} for ${OS}/${ARCH}..." >&2
   mkdir -p "$(dirname "$BINARY")"
-  TMP="$(mktemp -d)"
-  trap 'rm -rf "$TMP"' EXIT
 
-  curl -sfL "$URL" -o "${TMP}/archive.tar.gz"
-  tar -xzf "${TMP}/archive.tar.gz" -C "$TMP"
-  mv "${TMP}/lumen" "$BINARY"
+  curl -sfL "$URL" -o "$BINARY"
   chmod +x "$BINARY"
   echo "Installed lumen to ${BINARY}" >&2
 fi
