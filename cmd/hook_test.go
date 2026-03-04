@@ -122,11 +122,11 @@ func TestLooksLikeNaturalLanguage(t *testing.T) {
 		pattern string
 		want    bool
 	}{
-		{"handleSemanticSearch", false},                    // no spaces
-		{"find this", false},                               // too short
+		{"handleSemanticSearch", false}, // no spaces
+		{"find this", false},            // too short
 		{"how does the authentication system work in this project", true},
-		{`func\s+\w+`, false},                              // regex
-		{"**/*.go", false},                                  // glob
+		{`func\s+\w+`, false}, // regex
+		{"**/*.go", false},    // glob
 		{"where is the database connection pool configured and initialized", true},
 		{"1234567890 1234567890 1234567890 1234567890 12345", false}, // mostly digits
 	}

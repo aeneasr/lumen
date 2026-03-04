@@ -3,19 +3,23 @@
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact",
-        "hooks": [{
-          "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh hook session-start lumen"
-        }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh hook session-start lumen"
+          }
+        ]
       }
     ],
     "PreToolUse": [
       {
         "matcher": "Grep|Glob",
-        "hooks": [{
-          "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh hook pre-tool-use lumen"
-        }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh hook pre-tool-use lumen"
+          }
+        ]
       }
     ]
   }

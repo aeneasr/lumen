@@ -53,9 +53,9 @@ var SkipDirs = map[string]bool{
 
 // dirIgnore holds compiled matchers for a single directory level.
 type dirIgnore struct {
-	gitignore        *ignore.GitIgnore // from .gitignore
-	lumenIgnore *ignore.GitIgnore // from .lumenignore
-	gitattributes    *ignore.GitIgnore // linguist-generated patterns from .gitattributes
+	gitignore     *ignore.GitIgnore // from .gitignore
+	lumenIgnore   *ignore.GitIgnore // from .lumenignore
+	gitattributes *ignore.GitIgnore // linguist-generated patterns from .gitattributes
 }
 
 // IgnoreTree manages hierarchical ignore rules, lazily loading them as
