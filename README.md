@@ -25,7 +25,7 @@ answer quality that wins every blind comparison.
 
 ## Demo
 
-![Lumen demo](docs/demo/demo.gif)
+<img src="docs/demo/demo.gif" alt="Lumen demo" width="600"/>
 
 _Claude Code asking about the [Prometheus](https://github.com/prometheus/prometheus)
 codebase. Lumen's `semantic_search` finds the relevant code without reading entire files._
