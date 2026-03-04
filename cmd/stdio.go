@@ -31,6 +31,7 @@ import (
 	"github.com/ory/lumen/internal/config"
 	"github.com/ory/lumen/internal/embedder"
 	"github.com/ory/lumen/internal/index"
+	"github.com/ory/lumen/internal/merkle"
 	"github.com/ory/lumen/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -50,7 +51,8 @@ var stdioCmd = &cobra.Command{
 // SemanticSearchInput defines the parameters for the semantic_search tool.
 type SemanticSearchInput struct {
 	Query        string   `json:"query" jsonschema:"Natural language search query"`
-	Path         string   `json:"path" jsonschema:"Absolute path to the project root"`
+	Path         string   `json:"path" jsonschema:"Absolute path to search in. Defaults to cwd. When a subdirectory of cwd, results are filtered to that subtree."`
+	Cwd          string   `json:"cwd,omitempty" jsonschema:"The current working directory / project root. Used as index root when provided."`
 	Limit        int      `json:"limit,omitempty" jsonschema:"Max results to return, default 20"`
 	MinScore     *float64 `json:"min_score,omitempty" jsonschema:"Minimum score threshold (-1 to 1). Results below this score are excluded. Default 0.5. Use -1 to return all results."`
 	ForceReindex bool     `json:"force_reindex,omitempty" jsonschema:"Force full re-index before searching"`
@@ -78,7 +80,8 @@ type SemanticSearchOutput struct {
 
 // IndexStatusInput defines the parameters for the index_status tool.
 type IndexStatusInput struct {
-	Path string `json:"path" jsonschema:"Absolute path to the project root"`
+	Path string `json:"path" jsonschema:"Absolute path to the project root. Defaults to cwd."`
+	Cwd  string `json:"cwd,omitempty" jsonschema:"The current working directory / project root. Used as index root when provided."`
 }
 
 // IndexStatusOutput is the structured output of the index_status tool.
@@ -106,11 +109,20 @@ type HealthCheckOutput struct {
 
 // --- indexerCache ---
 
+// cacheEntry holds an indexer together with the effective root directory it
+// was created for. When a subdirectory is aliased to a parent index, both
+// the parent path and the subdirectory path map to the same cacheEntry, but
+// effectiveRoot always points at the parent.
+type cacheEntry struct {
+	idx           *index.Indexer
+	effectiveRoot string
+}
+
 // indexerCache manages one *index.Indexer per project path, creating them
 // lazily with a shared embedder.
 type indexerCache struct {
 	mu       sync.RWMutex
-	cache    map[string]*index.Indexer
+	cache    map[string]cacheEntry
 	embedder embedder.Embedder
 	model    string
 	cfg      config.Config
@@ -119,14 +131,20 @@ type indexerCache struct {
 // findEffectiveRoot walks up the directory tree from path's parent to find an
 // existing parent index (either in cache or on disk). Returns path unchanged
 // if no parent index is found. Must be called under ic.mu write lock.
+//
+// A candidate parent is skipped when the relative path from that parent to
+// path passes through a directory in merkle.SkipDirs (e.g. "testdata"). Such
+// a parent index would never contain path's files, so it is not useful.
 func (ic *indexerCache) findEffectiveRoot(path string) string {
 	candidate := filepath.Dir(path)
 	for {
-		if _, ok := ic.cache[candidate]; ok {
-			return candidate
-		}
-		if _, err := os.Stat(config.DBPathForProject(candidate, ic.model)); err == nil {
-			return candidate
+		if !pathCrossesSkipDir(candidate, path) {
+			if _, ok := ic.cache[candidate]; ok {
+				return candidate
+			}
+			if _, err := os.Stat(config.DBPathForProject(candidate, ic.model)); err == nil {
+				return candidate
+			}
 		}
 		parent := filepath.Dir(candidate)
 		if parent == candidate {
@@ -137,16 +155,36 @@ func (ic *indexerCache) findEffectiveRoot(path string) string {
 	return path
 }
 
+// pathCrossesSkipDir reports whether the relative path from root to sub passes
+// through any directory whose base name is in merkle.SkipDirs.
+func pathCrossesSkipDir(root, sub string) bool {
+	rel, err := filepath.Rel(root, sub)
+	if err != nil {
+		return false
+	}
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		if merkle.SkipDirs[part] {
+			return true
+		}
+	}
+	return false
+}
+
 // getOrCreate returns an existing Indexer for the given project path (or a
 // parent index if one exists), along with the effective root directory used by
 // the indexer. Creates a new indexer if none exists.
-func (ic *indexerCache) getOrCreate(projectPath string) (*index.Indexer, string, error) {
+//
+// When preferredRoot is non-empty it is used as the effective root directly,
+// bypassing the findEffectiveRoot walk. This lets callers pass the known
+// project root (e.g. cwd from Claude) so that sub-directory paths index the
+// whole project.
+func (ic *indexerCache) getOrCreate(projectPath string, preferredRoot string) (*index.Indexer, string, error) {
 	// Fast path: read lock for already-cached indexers.
 	ic.mu.RLock()
 	if ic.cache != nil {
-		if idx, ok := ic.cache[projectPath]; ok {
+		if entry, ok := ic.cache[projectPath]; ok {
 			ic.mu.RUnlock()
-			return idx, projectPath, nil
+			return entry.idx, entry.effectiveRoot, nil
 		}
 	}
 	ic.mu.RUnlock()
@@ -156,21 +194,26 @@ func (ic *indexerCache) getOrCreate(projectPath string) (*index.Indexer, string,
 	defer ic.mu.Unlock()
 
 	if ic.cache == nil {
-		ic.cache = make(map[string]*index.Indexer)
+		ic.cache = make(map[string]cacheEntry)
 	}
 	// Double-check: another goroutine may have created it while we waited.
-	if idx, ok := ic.cache[projectPath]; ok {
-		return idx, projectPath, nil
+	if entry, ok := ic.cache[projectPath]; ok {
+		return entry.idx, entry.effectiveRoot, nil
 	}
 
-	// Walk up to find an existing parent index.
-	effectiveRoot := ic.findEffectiveRoot(projectPath)
+	// Determine the effective root: prefer explicit root, then walk up.
+	var effectiveRoot string
+	if preferredRoot != "" {
+		effectiveRoot = filepath.Clean(preferredRoot)
+	} else {
+		effectiveRoot = ic.findEffectiveRoot(projectPath)
+	}
 
 	// If a parent index is already cached, alias and return.
 	if effectiveRoot != projectPath {
-		if idx, ok := ic.cache[effectiveRoot]; ok {
-			ic.cache[projectPath] = idx
-			return idx, effectiveRoot, nil
+		if entry, ok := ic.cache[effectiveRoot]; ok {
+			ic.cache[projectPath] = cacheEntry{idx: entry.idx, effectiveRoot: effectiveRoot}
+			return entry.idx, effectiveRoot, nil
 		}
 	}
 
@@ -184,9 +227,9 @@ func (ic *indexerCache) getOrCreate(projectPath string) (*index.Indexer, string,
 		return nil, "", fmt.Errorf("create indexer: %w", err)
 	}
 
-	ic.cache[effectiveRoot] = idx
+	ic.cache[effectiveRoot] = cacheEntry{idx: idx, effectiveRoot: effectiveRoot}
 	if effectiveRoot != projectPath {
-		ic.cache[projectPath] = idx
+		ic.cache[projectPath] = cacheEntry{idx: idx, effectiveRoot: effectiveRoot}
 	}
 	return idx, effectiveRoot, nil
 }
@@ -199,7 +242,7 @@ func (ic *indexerCache) handleSemanticSearch(ctx context.Context, req *mcp.CallT
 		return nil, nil, err
 	}
 
-	idx, effectiveRoot, err := ic.getOrCreate(input.Path)
+	idx, effectiveRoot, err := ic.getOrCreate(input.Path, input.Cwd)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get indexer: %w", err)
 	}
@@ -262,9 +305,27 @@ func (ic *indexerCache) handleSemanticSearch(ctx context.Context, req *mcp.CallT
 }
 
 func validateSearchInput(input *SemanticSearchInput) error {
-	if input.Path == "" {
-		return fmt.Errorf("path is required")
+	if input.Cwd != "" {
+		input.Cwd = filepath.Clean(input.Cwd)
+		if !filepath.IsAbs(input.Cwd) {
+			return fmt.Errorf("cwd must be an absolute path")
+		}
 	}
+
+	if input.Path == "" && input.Cwd != "" {
+		input.Path = input.Cwd
+	}
+	if input.Path == "" {
+		return fmt.Errorf("path is required (or provide cwd)")
+	}
+
+	if input.Cwd != "" && input.Path != input.Cwd {
+		rel, err := filepath.Rel(input.Cwd, input.Path)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return fmt.Errorf("path must be equal to or under cwd")
+		}
+	}
+
 	if input.Query == "" {
 		return fmt.Errorf("query is required")
 	}
@@ -336,11 +397,14 @@ func computeMaxDistance(minScore *float64) float64 {
 // handleIndexStatus is the tool handler for the index_status tool.
 // Uses Out=any so the SDK does not set StructuredContent.
 func (ic *indexerCache) handleIndexStatus(_ context.Context, _ *mcp.CallToolRequest, input IndexStatusInput) (*mcp.CallToolResult, any, error) {
+	if input.Path == "" && input.Cwd != "" {
+		input.Path = input.Cwd
+	}
 	if input.Path == "" {
-		return nil, nil, fmt.Errorf("path is required")
+		return nil, nil, fmt.Errorf("path is required (or provide cwd)")
 	}
 
-	idx, effectiveRoot, err := ic.getOrCreate(input.Path)
+	idx, effectiveRoot, err := ic.getOrCreate(input.Path, input.Cwd)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get indexer: %w", err)
 	}

@@ -38,3 +38,6 @@ format:
 
 plugin-dev: build-local
 	@echo "Run: claude --plugin-dir ."
+
+vhs:
+	export CLAUDE_PLUGIN_ROOT=$(pwd) && cd testdata/fixtures/go && vhs ../../../docs/demo/demo.tape

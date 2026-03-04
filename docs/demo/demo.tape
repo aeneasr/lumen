@@ -1,19 +1,19 @@
-Output docs/demo/demo.gif
+Output ../../../docs/demo/demo.gif
 
 Set FontSize 13
 Set Width 1200
 Set Height 700
 Set Theme "Dracula"
 Set PlaybackSpeed 1.0
-Set TypingSpeed 50ms
+Set TypingSpeed 10ms
 
 # Prerequisite (run once before recording to pre-index):
 #   ./bin/lumen index testdata/fixtures/go
 
-Type "claude"
+Type "claude --dangerously-skip-permissions"
 Enter
-Sleep 5s
+Sleep 2s
 
-Type "Explain to me how Observe records a histogram value"
+Type "How does TSDB compaction work end-to-end? Explain the Compactor interface, LeveledCompactor, and how the DB triggers compaction. Show relevant types, interfaces, and key method signatures."
 Enter
-Sleep 30s
+Sleep 20s
