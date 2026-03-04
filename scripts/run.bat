@@ -22,7 +22,7 @@ set "BINARY=%PLUGIN_ROOT%\bin\lumen-windows-%ARCH%.exe"
 
 :: Download on first run if binary is missing
 if not exist "%BINARY%" (
-  set "REPO=aeneasr/lumen"
+  set "REPO=ory/lumen"
 
   if not defined LUMEN_VERSION (
     for /f "tokens=*" %%i in ('curl -sfL "https://api.github.com/repos/!REPO!/releases/latest" ^| findstr "tag_name"') do (
@@ -42,19 +42,13 @@ if not exist "%BINARY%" (
     exit /b 1
   )
 
-  set "ASSET=lumen-!VERSION:~1!-windows-!ARCH!.zip"
+  set "ASSET=lumen-!VERSION:~1!-windows-!ARCH!.exe"
   set "URL=https://github.com/!REPO!/releases/download/!VERSION!/!ASSET!"
 
   echo Downloading lumen !VERSION! for windows/!ARCH!... >&2
   if not exist "%PLUGIN_ROOT%\bin" mkdir "%PLUGIN_ROOT%\bin"
 
-  set "TMP=%TEMP%\lumen-download"
-  mkdir "!TMP!" 2>nul
-
-  curl -sfL "!URL!" -o "!TMP!\archive.zip"
-  tar -xf "!TMP!\archive.zip" -C "!TMP!"
-  move "!TMP!\lumen.exe" "%BINARY%" >nul
-  rmdir /s /q "!TMP!"
+  curl -sfL "!URL!" -o "%BINARY%"
 
   echo Installed lumen to %BINARY% >&2
 )

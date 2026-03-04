@@ -5,8 +5,8 @@
     "name": "Aeneas Rekkas",
     "url": "https://github.com/aeneasr"
   },
-  "homepage": "https://github.com/aeneasr/lumen",
-  "repository": "https://github.com/aeneasr/lumen",
+  "homepage": "https://github.com/ory/lumen",
+  "repository": "https://github.com/ory/lumen",
   "license": "Apache-2.0",
   "keywords": ["semantic-search", "code-index", "mcp", "embeddings", "ollama", "rag"]
 }
