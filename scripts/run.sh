@@ -31,23 +31,17 @@ done
 # Download on first run if no binary found
 if [ -z "$BINARY" ]; then
   BINARY="${PLUGIN_ROOT}/bin/lumen-${OS}-${ARCH}"
-  VERSION="${LUMEN_VERSION:-latest}"
   REPO="ory/lumen"
 
-  if [ "$VERSION" = "latest" ]; then
-    # Try manifest first (always available, no rate limits)
-    MANIFEST="${PLUGIN_ROOT}/.release-please-manifest.json"
-    if [ -f "$MANIFEST" ]; then
-      VERSION="v$(grep '"[.]"' "$MANIFEST" | sed 's/.*"[^"]*"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
-    fi
-    # Fall back to GitHub API if manifest didn't give us a version
-    if [ -z "$VERSION" ]; then
-      VERSION="$(curl -sfL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true)"
-    fi
+  # Always use the version pinned in the manifest — keeps plugin and binary in sync
+  MANIFEST="${PLUGIN_ROOT}/.release-please-manifest.json"
+  if [ ! -f "$MANIFEST" ]; then
+    echo "Error: .release-please-manifest.json not found in ${PLUGIN_ROOT}" >&2
+    exit 1
   fi
-
-  if [ -z "$VERSION" ]; then
-    echo "Error: could not determine latest lumen version" >&2
+  VERSION="v$(grep '"[.]"' "$MANIFEST" | sed 's/.*"[^"]*"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+  if [ -z "$VERSION" ] || [ "$VERSION" = "v" ]; then
+    echo "Error: could not read version from ${MANIFEST}" >&2
     exit 1
   fi
 

@@ -144,10 +144,7 @@ printf '{\n  ".": "1.2.3"\n}\n' > "$MANIFEST"
 
 resolved_version_from_manifest() {
   local manifest="$1"
-  local ver=""
-  if [ -f "$manifest" ]; then
-    ver="v$(grep '"[.]"' "$manifest" | sed 's/.*"[^"]*"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
-  fi
+  local ver="v$(grep '"[.]"' "$manifest" | sed 's/.*"[^"]*"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
   echo "$ver"
 }
 
@@ -155,9 +152,9 @@ assert_eq "manifest version resolution" \
   "v1.2.3" \
   "$(resolved_version_from_manifest "$MANIFEST")"
 
-assert_eq "missing manifest returns empty" \
-  "" \
-  "$(resolved_version_from_manifest "/nonexistent/.release-please-manifest.json")"
+assert_eq "pre-release version preserved" \
+  "v0.0.1-alpha.4" \
+  "$(printf '{\n  ".": "0.0.1-alpha.4"\n}\n' | grep '"[.]"' | sed 's/.*"[^"]*"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/v\1/')"
 
 echo ""
 echo "=== summary ==="

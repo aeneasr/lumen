@@ -24,35 +24,23 @@ set "BINARY=%PLUGIN_ROOT%\bin\lumen-windows-%ARCH%.exe"
 if not exist "%BINARY%" (
   set "REPO=ory/lumen"
 
-  if not defined LUMEN_VERSION (
-    for /f "tokens=*" %%i in ('curl -sfL "https://api.github.com/repos/!REPO!/releases/latest" ^| findstr "tag_name"') do (
-      for /f "tokens=2 delims=:" %%j in ("%%i") do (
-        set "VERSION=%%~j"
-        set "VERSION=!VERSION: =!"
-        set "VERSION=!VERSION:,=!"
-        set "VERSION=!VERSION:"=!"
-      )
-    )
-  ) else (
-    set "VERSION=%LUMEN_VERSION%"
+  :: Always use the version pinned in the manifest — keeps plugin and binary in sync
+  set "MANIFEST=%PLUGIN_ROOT%\.release-please-manifest.json"
+  if not exist "!MANIFEST!" (
+    echo Error: .release-please-manifest.json not found in %PLUGIN_ROOT% >&2
+    exit /b 1
   )
-
-  if "!VERSION!"=="" (
-    set "MANIFEST=%PLUGIN_ROOT%\.release-please-manifest.json"
-    if exist "!MANIFEST!" (
-      for /f "tokens=*" %%i in ('findstr /r "\"[.]\"" "!MANIFEST!"') do (
-        for /f "tokens=2 delims=:" %%j in ("%%i") do (
-          set "VERSION=v%%~j"
-          set "VERSION=!VERSION: =!"
-          set "VERSION=!VERSION:,=!"
-          set "VERSION=!VERSION:"=!"
-        )
-      )
+  for /f "tokens=*" %%i in ('findstr /r "\"[.]\"" "!MANIFEST!"') do (
+    for /f "tokens=2 delims=:" %%j in ("%%i") do (
+      set "VERSION=v%%~j"
+      set "VERSION=!VERSION: =!"
+      set "VERSION=!VERSION:,=!"
+      set "VERSION=!VERSION:"=!"
     )
   )
 
   if "!VERSION!"=="" (
-    echo Error: could not determine latest lumen version >&2
+    echo Error: could not read version from !MANIFEST! >&2
     exit /b 1
   )
 
