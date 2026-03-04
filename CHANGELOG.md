@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.5](https://github.com/ory/lumen/compare/v0.0.4...v0.0.5) (2026-03-04)
+
+
+### Bug Fixes
+
+* **scripts:** correct jsonpath field name in release-please extra-files config ([528d6a3](https://github.com/ory/lumen/commit/528d6a3e67a871eb685741812ae41b12f98d39a9))
+* **scripts:** pin binary download to manifest version ([9b1f90d](https://github.com/ory/lumen/commit/9b1f90d7eb0c2d0eeb44317ab16918669b702027))
+
 ## [0.0.4](https://github.com/ory/lumen/compare/v0.0.3...v0.0.4) (2026-03-04)
 
 
