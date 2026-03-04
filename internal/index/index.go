@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/aeneasr/lumen/internal/chunker"
@@ -55,6 +56,7 @@ type StatusInfo struct {
 
 // Indexer orchestrates chunking, embedding, and storage for a code index.
 type Indexer struct {
+	mu             sync.Mutex
 	store          *store.Store
 	emb            embedder.Embedder
 	chunker        chunker.Chunker
@@ -85,10 +87,15 @@ func (idx *Indexer) Close() error {
 // Index indexes the project at projectDir. If force is true, all files are
 // re-indexed regardless of whether they have changed.
 func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool, progress ProgressFunc) (Stats, error) {
+	// Build tree outside the lock: it is read-only and can be slow for large projects.
 	curTree, err := merkle.BuildTree(projectDir, merkle.MakeSkip(projectDir, chunker.SupportedExtensions()))
 	if err != nil {
 		return Stats{}, fmt.Errorf("build merkle tree: %w", err)
 	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
 	// If not forcing, check root hash before doing any work.
 	if !force {
 		storedHash, err := idx.store.GetMeta("root_hash")
@@ -105,10 +112,14 @@ func (idx *Indexer) Index(ctx context.Context, projectDir string, force bool, pr
 // EnsureFresh checks if the index is stale and re-indexes if needed.
 // Returns whether a re-index occurred, the stats, and any error.
 func (idx *Indexer) EnsureFresh(ctx context.Context, projectDir string, progress ProgressFunc) (bool, Stats, error) {
+	// Build tree outside the lock: it is read-only and can be slow for large projects.
 	curTree, err := merkle.BuildTree(projectDir, merkle.MakeSkip(projectDir, chunker.SupportedExtensions()))
 	if err != nil {
 		return false, Stats{}, fmt.Errorf("build merkle tree: %w", err)
 	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 
 	storedHash, err := idx.store.GetMeta("root_hash")
 	if err != nil && err != sql.ErrNoRows {
