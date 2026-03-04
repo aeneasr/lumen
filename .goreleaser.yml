@@ -85,5 +85,5 @@ checksum:
 
 release:
   github:
-    owner: aeneasr
+    owner: ory
     name: lumen
