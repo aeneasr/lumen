@@ -1039,3 +1039,96 @@ func TestE2E_ErrorHandling(t *testing.T) {
 		t.Errorf("expected 0 results for empty project, got %d", len(out.Results))
 	}
 }
+
+func TestE2E_SubdirFastPathNoDoubleIndex(t *testing.T) {
+	// Regression: when a subdirectory search hits the fast path (second call),
+	// the correct effectiveRoot must be used — not the subdirectory path.
+	// A wrong effectiveRoot causes spurious re-indexing and broken snippets.
+	session := startServer(t)
+
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "api")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Root-level file.
+	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte(`package main
+
+// Run starts the server.
+func Run() {}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Subdirectory file — target for subdir searches below.
+	if err := os.WriteFile(filepath.Join(subDir, "handler.go"), []byte(`package api
+
+import "net/http"
+
+// HandleHealth returns a health check response.
+func HandleHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Call 1: search the ROOT — triggers indexing, effectiveRoot = tmpDir.
+	out1 := callSearch(t, session, map[string]any{
+		"query": "server",
+		"path":  tmpDir,
+	})
+	if !out1.Reindexed {
+		t.Error("call 1 (root): expected Reindexed=true")
+	}
+
+	// Call 2: search a SUBDIRECTORY for the first time — slow path, aliases
+	// tmpDir/api → effectiveRoot = tmpDir in cache.
+	out2 := callSearch(t, session, map[string]any{
+		"query":     "HTTP handler health check",
+		"path":      subDir,
+		"min_score": -1,
+	})
+	if out2.Reindexed {
+		t.Error("call 2 (first subdir search): expected Reindexed=false (parent already indexed)")
+	}
+
+	// Call 3: search the SAME subdirectory again — hits the fast path.
+	// Before the fix: fast path returned subDir as effectiveRoot → EnsureFresh
+	// built a Merkle tree for subDir alone (different hash), triggering a
+	// spurious re-index. extractSnippets also used the wrong root path.
+	out3 := callSearch(t, session, map[string]any{
+		"query":     "HTTP handler health check",
+		"path":      subDir,
+		"min_score": -1,
+	})
+	if out3.Reindexed {
+		t.Error("call 3 (fast-path subdir): expected Reindexed=false — double index detected!")
+	}
+
+	if len(out3.Results) == 0 {
+		t.Fatal("call 3: expected at least one result")
+	}
+	found := findResult(out3.Results, "HandleHealth")
+	if found == nil {
+		t.Fatalf("call 3: expected HandleHealth in results, got: %v", resultSymbols(out3.Results))
+	}
+	// Snippet content must be non-empty — proves extractSnippets used the right root.
+	if found.Content == "" {
+		t.Error("call 3: HandleHealth result has no snippet content — wrong effectiveRoot in extractSnippets")
+	}
+
+	// Call 4: same subdirectory with min_score=0.3 filter.
+	out4 := callSearch(t, session, map[string]any{
+		"query":     "HTTP handler health check",
+		"path":      subDir,
+		"min_score": 0.3,
+	})
+	if out4.Reindexed {
+		t.Error("call 4 (min_score filter): unexpected re-index")
+	}
+	if found.Score > 0.3 && findResult(out4.Results, "HandleHealth") == nil {
+		t.Errorf("call 4: HandleHealth (score=%.2f) should pass min_score=0.3 filter", found.Score)
+	}
+}

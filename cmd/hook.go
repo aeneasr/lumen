@@ -83,6 +83,7 @@ func generateHookContent(mcpName string) string {
 	toolRef := "`mcp__" + mcpName + "__semantic_search`"
 	return "<EXTREMELY_IMPORTANT>\n" +
 		"# Lumen Semantic Search\n\n" +
+		"ALWAYS pass your current working directory as the `cwd` parameter when calling " + toolRef + ".\n\n" +
 		"ALWAYS use " + toolRef + " as the FIRST tool for code discovery.\n\n" +
 		"Before using Grep, Glob, Find, or Read for any search, stop and ask:\n" +
 		"\"Do I already know the exact literal string I'm searching for?\"\n" +
