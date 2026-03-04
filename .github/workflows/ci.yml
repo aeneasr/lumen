@@ -21,6 +21,9 @@ jobs:
       - name: Test
         run: make test
 
+      - name: Script tests
+        run: bash scripts/test_run.sh
+
       - name: Vet
         run: go vet -tags=fts5 ./...
 

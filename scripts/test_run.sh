@@ -35,8 +35,8 @@ asset_name() {
   local version="$1" os="$2" arch="$3"
   local ver_no_v="${version#v}"
   case "$os" in
-    windows) echo "lumen-${ver_no_v}-${os}-${arch}.zip" ;;
-    *)       echo "lumen-${ver_no_v}-${os}-${arch}.tar.gz" ;;
+    windows) echo "lumen-${ver_no_v}-${os}-${arch}.exe" ;;
+    *)       echo "lumen-${ver_no_v}-${os}-${arch}" ;;
   esac
 }
 
@@ -61,23 +61,23 @@ normalise_arch() {
 
 echo "=== asset name tests ==="
 assert_eq "macOS arm64 asset" \
-  "lumen-0.0.1-alpha.4-darwin-arm64.tar.gz" \
+  "lumen-0.0.1-alpha.4-darwin-arm64" \
   "$(asset_name "v0.0.1-alpha.4" "darwin" "arm64")"
 
 assert_eq "macOS amd64 asset" \
-  "lumen-0.0.1-alpha.4-darwin-amd64.tar.gz" \
+  "lumen-0.0.1-alpha.4-darwin-amd64" \
   "$(asset_name "v0.0.1-alpha.4" "darwin" "amd64")"
 
 assert_eq "Linux amd64 asset" \
-  "lumen-0.0.1-alpha.4-linux-amd64.tar.gz" \
+  "lumen-0.0.1-alpha.4-linux-amd64" \
   "$(asset_name "v0.0.1-alpha.4" "linux" "amd64")"
 
 assert_eq "Linux arm64 asset" \
-  "lumen-0.0.1-alpha.4-linux-arm64.tar.gz" \
+  "lumen-0.0.1-alpha.4-linux-arm64" \
   "$(asset_name "v0.0.1-alpha.4" "linux" "arm64")"
 
-assert_eq "Windows amd64 asset (zip)" \
-  "lumen-0.0.1-alpha.4-windows-amd64.zip" \
+assert_eq "Windows amd64 asset (.exe)" \
+  "lumen-0.0.1-alpha.4-windows-amd64.exe" \
   "$(asset_name "v0.0.1-alpha.4" "windows" "amd64")"
 
 echo ""
@@ -86,15 +86,15 @@ REPO="ory/lumen"
 VERSION="v0.0.1-alpha.4"
 
 assert_eq "macOS arm64 URL" \
-  "https://github.com/ory/lumen/releases/download/v0.0.1-alpha.4/lumen-0.0.1-alpha.4-darwin-arm64.tar.gz" \
+  "https://github.com/ory/lumen/releases/download/v0.0.1-alpha.4/lumen-0.0.1-alpha.4-darwin-arm64" \
   "$(download_url "$REPO" "$VERSION" "darwin" "arm64")"
 
 assert_eq "Linux amd64 URL" \
-  "https://github.com/ory/lumen/releases/download/v0.0.1-alpha.4/lumen-0.0.1-alpha.4-linux-amd64.tar.gz" \
+  "https://github.com/ory/lumen/releases/download/v0.0.1-alpha.4/lumen-0.0.1-alpha.4-linux-amd64" \
   "$(download_url "$REPO" "$VERSION" "linux" "amd64")"
 
 assert_eq "Windows amd64 URL" \
-  "https://github.com/ory/lumen/releases/download/v0.0.1-alpha.4/lumen-0.0.1-alpha.4-windows-amd64.zip" \
+  "https://github.com/ory/lumen/releases/download/v0.0.1-alpha.4/lumen-0.0.1-alpha.4-windows-amd64.exe" \
   "$(download_url "$REPO" "$VERSION" "windows" "amd64")"
 
 echo ""
