@@ -82,7 +82,7 @@ import (
 
 	sitter_py "github.com/smacker/go-tree-sitter/python"
 
-	"github.com/aeneasr/agent-index/internal/chunker"
+	"github.com/ory/agent-index/internal/chunker"
 )
 
 var samplePython = []byte(`def greet(name):
@@ -435,7 +435,7 @@ import (
 	sitter_rs "github.com/smacker/go-tree-sitter/rust"
 	sitter_ts "github.com/smacker/go-tree-sitter/typescript/typescript"
 
-	"github.com/aeneasr/agent-index/internal/chunker"
+	"github.com/ory/agent-index/internal/chunker"
 )
 ```
 
@@ -794,7 +794,7 @@ Change the `NewIndexer` function to use `MultiChunker`:
 
 ```go
 // Add to imports:
-//   "github.com/aeneasr/agent-index/internal/merkle"
+//   "github.com/ory/agent-index/internal/merkle"
 
 func NewIndexer(dsn string, emb embedder.Embedder) (*Indexer, error) {
 	s, err := store.New(dsn, emb.Dimensions())

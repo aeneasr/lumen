@@ -530,7 +530,7 @@ return map[string]Chunker{
 Change it to:
 
 ```go
-// Add import: "github.com/aeneasr/agent-index/internal/config"
+// Add import: "github.com/ory/agent-index/internal/config"
 // at the top of the file (or inline the env read).
 
 maxChunkTokens := config.EnvOrDefaultInt("AGENT_INDEX_MAX_CHUNK_TOKENS", 2048)
@@ -544,8 +544,8 @@ return map[string]Chunker{
 }
 ```
 
-Also add the import `"github.com/aeneasr/agent-index/internal/config"` to the
-import block in `languages.go`.
+Also add the import `"github.com/ory/agent-index/internal/config"` to the import
+block in `languages.go`.
 
 **Step 2: Build and run all unit tests**
 

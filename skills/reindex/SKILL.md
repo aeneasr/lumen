@@ -4,7 +4,7 @@ Force a full re-index of the current project's codebase.
 
 ## Steps
 
-1. Call mcp__lumen__semantic_search with:
+1. Call mcp**lumen**semantic_search with:
    - path: the current working directory
    - query: "index status" (a simple query to trigger the search)
    - force_reindex: true

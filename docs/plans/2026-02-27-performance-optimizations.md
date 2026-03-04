@@ -71,7 +71,7 @@ func TestStore_ChunkIndexesExist(t *testing.T) {
 **Step 2: Run tests to verify they fail**
 
 ```
-cd /Users/aeneasr/workspace/agentic/agent-index
+cd /Users/ory/workspace/agentic/agent-index
 go test ./internal/store/... -run "TestStore_Pragmas|TestStore_ChunkIndexesExist" -v
 ```
 
@@ -831,8 +831,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/aeneasr/agent-index/internal/embedder"
-	"github.com/aeneasr/agent-index/internal/index"
+	"github.com/ory/agent-index/internal/embedder"
+	"github.com/ory/agent-index/internal/index"
 )
 
 type stubEmbedder struct{}

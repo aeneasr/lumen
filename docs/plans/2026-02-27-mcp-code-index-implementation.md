@@ -36,7 +36,7 @@ stdlib
 **Step 1: Initialize Go module and install dependencies**
 
 ```bash
-go mod init github.com/aeneasr/agent-index
+go mod init github.com/ory/agent-index
 ```
 
 **Step 2: Create shared types file**
@@ -76,7 +76,7 @@ Create `internal/chunker/chunker.go`:
 ```go
 package chunker
 
-import "github.com/aeneasr/agent-index/internal"
+import "github.com/ory/agent-index/internal"
 
 // Chunker splits source files into semantically meaningful chunks.
 type Chunker interface {
@@ -897,7 +897,7 @@ package store
 import (
 	"testing"
 
-	"github.com/aeneasr/agent-index/internal/chunker"
+	"github.com/ory/agent-index/internal/chunker"
 )
 
 func TestNewStore_CreatesSchema(t *testing.T) {
@@ -1112,7 +1112,7 @@ import (
 	"time"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-	"github.com/aeneasr/agent-index/internal/chunker"
+	"github.com/ory/agent-index/internal/chunker"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -1936,10 +1936,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aeneasr/agent-index/internal/chunker"
-	"github.com/aeneasr/agent-index/internal/embedder"
-	"github.com/aeneasr/agent-index/internal/merkle"
-	"github.com/aeneasr/agent-index/internal/store"
+	"github.com/ory/agent-index/internal/chunker"
+	"github.com/ory/agent-index/internal/embedder"
+	"github.com/ory/agent-index/internal/merkle"
+	"github.com/ory/agent-index/internal/store"
 )
 
 // IndexStats is returned after an indexing operation.
@@ -2181,8 +2181,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aeneasr/agent-index/internal/embedder"
-	"github.com/aeneasr/agent-index/internal/index"
+	"github.com/ory/agent-index/internal/embedder"
+	"github.com/ory/agent-index/internal/index"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -2475,8 +2475,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aeneasr/agent-index/internal/embedder"
-	"github.com/aeneasr/agent-index/internal/index"
+	"github.com/ory/agent-index/internal/embedder"
+	"github.com/ory/agent-index/internal/index"
 )
 
 func TestIntegration_FullPipeline(t *testing.T) {

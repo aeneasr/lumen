@@ -18,8 +18,8 @@ per language. Oversized chunks from new chunkers pass through the existing
 `github.com/bradleyjkemp/cupaloy/v2` (snapshots), existing
 `internal/index/split.go` for oversized-chunk splitting.
 
-**GitHub repo:** `github.com/aeneasr/agent-index-go` — badge URL base:
-`https://github.com/aeneasr/agent-index-go/actions/workflows/ci.yml`
+**GitHub repo:** `github.com/ory/agent-index-go` — badge URL base:
+`https://github.com/ory/agent-index-go/actions/workflows/ci.yml`
 
 ---
 
@@ -1290,7 +1290,7 @@ git commit -m "feat: change default limit to 50, default min_score to 0.5"
 `# agent-index`):
 
 ```markdown
-[![CI](https://github.com/aeneasr/agent-index-go/actions/workflows/ci.yml/badge.svg)](https://github.com/aeneasr/agent-index-go/actions/workflows/ci.yml)
+[![CI](https://github.com/ory/agent-index-go/actions/workflows/ci.yml/badge.svg)](https://github.com/ory/agent-index-go/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ```
 

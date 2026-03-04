@@ -1,14 +1,18 @@
 # CLAUDE.md — lumen
 
-Lumen is a code search and indexing tool designed for integration with the Claude Code plugin system. It provides fast, semantic search capabilities over codebases by leveraging vector embeddings
-and a Merkle tree structure to efficiently detect changes and minimize re-indexing.
+Lumen is a code search and indexing tool designed for integration with the
+Claude Code plugin system. It provides fast, semantic search capabilities over
+codebases by leveraging vector embeddings and a Merkle tree structure to
+efficiently detect changes and minimize re-indexing.
 
-This repository is structured as a claude plugin available via the claude marketplace. 
+This repository is structured as a claude plugin available via the claude
+marketplace.
 
 ## Go Standards
 
 - **Version**: Go 1.26+
-- **Build**: `CGO_ENABLED=1 go build -o bin/lumen-<os>-<arch> .` (sqlite-vec requires CGO)
+- **Build**: `CGO_ENABLED=1 go build -o bin/lumen-<os>-<arch> .` (sqlite-vec
+  requires CGO)
 - **Format**: `gofmt` (enforced in CI)
 - **Lint**: `golangci-lint run` (zero issues, see `.golangci.yml`)
 - **Vet**: `go vet ./...` (external dependency warnings OK)
@@ -16,23 +20,33 @@ This repository is structured as a claude plugin available via the claude market
 ## Code Quality Rules
 
 ### Testing
+
 - **Unit + integration**: `go test ./...`
 - **E2E tests**: `go test -tags e2e ./...` (requires Ollama/LM Studio running)
 - **All tests must pass before commit**
 - Coverage tracked but not enforced
 
 ### Linting & Errors
+
 - **golangci-lint**: Must pass with zero issues before any PR
-- **Error handling**: Explicit blank assignment `_ = err` when intentionally ignoring errors
-- **Defer cleanup**: Always defer resource cleanup (defer Close() on database/file handles)
+- **Error handling**: Explicit blank assignment `_ = err` when intentionally
+  ignoring errors
+- **Defer cleanup**: Always defer resource cleanup (defer Close() on
+  database/file handles)
 - **Panics**: Only during package initialization, never in business logic
-- **No "not found" confusion**: Distinguish between "resource not found" and actual database errors
+- **No "not found" confusion**: Distinguish between "resource not found" and
+  actual database errors
 
 ### Git Conventional Commits
-- **Format**: Follow [Conventional Commits](https://www.conventionalcommits.org/) specification
-- **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`
-- **Scope**: Optional, package or component name (e.g., `fix(chunker): ...`, `feat(store): ...`)
-- **Breaking changes**: Add `!` after type/scope (e.g., `feat!: ...`) or `BREAKING CHANGE:` footer
+
+- **Format**: Follow
+  [Conventional Commits](https://www.conventionalcommits.org/) specification
+- **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
+  `chore`, `ci`
+- **Scope**: Optional, package or component name (e.g., `fix(chunker): ...`,
+  `feat(store): ...`)
+- **Breaking changes**: Add `!` after type/scope (e.g., `feat!: ...`) or
+  `BREAKING CHANGE:` footer
 - **Examples**:
   - `fix: handle nil pointers in search results`
   - `feat(store): add batch upsert for chunks`
@@ -40,7 +54,9 @@ This repository is structured as a claude plugin available via the claude market
   - `refactor: simplify merkle tree comparison`
 
 ### Idiomatic Go Patterns
-- **Interface satisfaction**: Implicit, verified by compilation (no "implements" comments)
+
+- **Interface satisfaction**: Implicit, verified by compilation (no "implements"
+  comments)
 - **Error as value**: Return error as final argument, check immediately
 - **Context passing**: Thread context through all async operations
 - **defer for cleanup**: Prefer defer over manual cleanup
@@ -50,13 +66,13 @@ This repository is structured as a claude plugin available via the claude market
 
 ## Core Technologies
 
-| Tech          | Purpose                                 | Notes                           |
-| ------------- | --------------------------------------- | ------------------------------- |
-| SQLite        | Vector storage + schema persistence     | Uses sqlite-vec for KNN search  |
-| MCP (Model Context Protocol) | Agent integration               | stdio transport                 |
-| Ollama/LM Studio | Embeddings generation              | Local models, configurable      |
-| Go AST        | Code parsing into semantic chunks       | Functions, types, methods, etc. |
-| Cobra         | CLI framework                           | Subcommands: index, stdio       |
+| Tech                         | Purpose                             | Notes                           |
+| ---------------------------- | ----------------------------------- | ------------------------------- |
+| SQLite                       | Vector storage + schema persistence | Uses sqlite-vec for KNN search  |
+| MCP (Model Context Protocol) | Agent integration                   | stdio transport                 |
+| Ollama/LM Studio             | Embeddings generation               | Local models, configurable      |
+| Go AST                       | Code parsing into semantic chunks   | Functions, types, methods, etc. |
+| Cobra                        | CLI framework                       | Subcommands: index, stdio       |
 
 ## Commands Reference
 
@@ -81,7 +97,9 @@ make build
 claude --plugin-dir .
 ```
 
-This loads lumen as a Claude Code plugin directly from the repo. The plugin system handles MCP registration, hooks, and skills declaratively via:
+This loads lumen as a Claude Code plugin directly from the repo. The plugin
+system handles MCP registration, hooks, and skills declaratively via:
+
 - `.claude-plugin/plugin.json` — plugin manifest
 - `.mcp.json` — MCP server config
 - `hooks/hooks.json` — SessionStart + PreToolUse hooks
@@ -89,15 +107,16 @@ This loads lumen as a Claude Code plugin directly from the repo. The plugin syst
 
 ## Environment Variables
 
-| Variable                  | Default              | Description                                |
-| ------------------------- | -------------------- | ------------------------------------------ |
-| `LUMEN_BACKEND`           | `ollama`             | Embedding backend (`ollama` or `lmstudio`) |
-| `LUMEN_EMBED_MODEL`       | see note ¹           | Embedding model (must be in registry)      |
-| `OLLAMA_HOST`             | `localhost:11434`    | Ollama server URL                          |
-| `LM_STUDIO_HOST`          | `localhost:1234`     | LM Studio server URL                       |
-| `LUMEN_MAX_CHUNK_TOKENS`  | `512`                | Max tokens per chunk before splitting      |
+| Variable                 | Default           | Description                                |
+| ------------------------ | ----------------- | ------------------------------------------ |
+| `LUMEN_BACKEND`          | `ollama`          | Embedding backend (`ollama` or `lmstudio`) |
+| `LUMEN_EMBED_MODEL`      | see note ¹        | Embedding model (must be in registry)      |
+| `OLLAMA_HOST`            | `localhost:11434` | Ollama server URL                          |
+| `LM_STUDIO_HOST`         | `localhost:1234`  | LM Studio server URL                       |
+| `LUMEN_MAX_CHUNK_TOKENS` | `512`             | Max tokens per chunk before splitting      |
 
-¹ `ordis/jina-embeddings-v2-base-code` (Ollama), `nomic-ai/nomic-embed-code-GGUF` (LM Studio)
+¹ `ordis/jina-embeddings-v2-base-code` (Ollama),
+`nomic-ai/nomic-embed-code-GGUF` (LM Studio)
 
 ## Project Structure
 
@@ -128,17 +147,23 @@ This loads lumen as a Claude Code plugin directly from the repo. The plugin syst
 ## Key Design Decisions
 
 - **Merkle tree for diffs**: Avoid re-indexing unchanged code
-- **Model name in DB path**: Different models → separate indexes (SHA-256 hash of path + model name)
-- **5-layer file filtering**: SkipDirs → .gitignore → .lumenignore → .gitattributes → extension
-- **Chunk splitting at line boundaries**: Oversized chunks split at `LUMEN_MAX_CHUNK_TOKENS` (512 default)
+- **Model name in DB path**: Different models → separate indexes (SHA-256 hash
+  of path + model name)
+- **5-layer file filtering**: SkipDirs → .gitignore → .lumenignore →
+  .gitattributes → extension
+- **Chunk splitting at line boundaries**: Oversized chunks split at
+  `LUMEN_MAX_CHUNK_TOKENS` (512 default)
 - **32-batch embedding**: Balance memory vs. API round-trips
 - **Cosine distance KNN**: Normalized for semantic similarity
-- **Plugin system**: Declarative hooks/MCP/skills via `.claude-plugin/`, replacing manual install/uninstall
+- **Plugin system**: Declarative hooks/MCP/skills via `.claude-plugin/`,
+  replacing manual install/uninstall
 
 ## Claude Integration Notes
 
-When planning any work related to claude code plugin, marketplace, hooks, ensuring tool use, and other areas around the claude
-integration you MUST base your thinking on the following AUTHORATIVE reference docs:
+When planning any work related to claude code plugin, marketplace, hooks,
+ensuring tool use, and other areas around the claude integration you MUST base
+your thinking on the following AUTHORATIVE reference docs:
 
-- Marketplace Plugin: https://code.claude.com/docs/en/plugin-marketplaces#marketplace-schema
+- Marketplace Plugin:
+  https://code.claude.com/docs/en/plugin-marketplaces#marketplace-schema
 - Plugin Reference: https://code.claude.com/docs/en/plugins-reference
