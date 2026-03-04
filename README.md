@@ -44,8 +44,8 @@ codebase. Lumen's `semantic_search` finds the relevant code without reading enti
 **Install:**
 
 ```bash
-/plugin marketplace add ory/lumen
-/plugin install lumen@lumen
+/plugin marketplace add ory/claude-plugins
+/plugin install lumen@ory
 ```
 
 That's it. On first session start, Lumen:
