@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.6](https://github.com/ory/lumen/compare/v0.0.5...v0.0.6) (2026-03-04)
+
+
+### Bug Fixes
+
+* **ci:** chain goreleaser into release-please workflow ([8ceb5d6](https://github.com/ory/lumen/commit/8ceb5d6b3df277b7e5850b7c8c5a4cf0eaf350d6))
+
 ## [0.0.5](https://github.com/ory/lumen/compare/v0.0.4...v0.0.5) (2026-03-04)
 
 
