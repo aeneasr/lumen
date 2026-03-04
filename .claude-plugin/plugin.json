@@ -16,5 +16,11 @@
     "embeddings",
     "ollama",
     "rag"
-  ]
+  ],
+  "mcpServers": {
+    "lumen": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh",
+      "args": ["stdio"]
+    }
+  }
 }
