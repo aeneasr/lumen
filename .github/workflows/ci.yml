@@ -19,7 +19,15 @@ jobs:
           cache: true
 
       - name: Test
-        run: make test
+        run:
+          CGO_ENABLED=1 go test -tags=fts5 -coverprofile=coverage.out
+          -covermode=atomic ./...
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          file: coverage.out
+          format: golang
 
       - name: Script tests
         run: bash scripts/test_run.sh
@@ -77,4 +85,3 @@ jobs:
           OLLAMA_HOST: http://localhost:11434
           LUMEN_EMBED_MODEL: all-minilm
           LUMEN_EMBED_DIMS: '384'
-
