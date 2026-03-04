@@ -49,11 +49,8 @@ re-indexing) are available plus semantic search.
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 - [Supported languages](#supported-languages)
-- [Configuration](#configuration)
-  - [Environment variables](#environment-variables)
-  - [Purge index data](#purge-index-data)
 - [CLI](#cli)
-- [Configuration](#configuration-1)
+- [Configuration](#configuration)
   - [Supported embedding models](#supported-embedding-models)
 - [Database location](#database-location)
 - [Benchmarks](#benchmarks)
@@ -87,52 +84,16 @@ _Note: Golang is the best-supported language. Other languages work via
 tree-sitter but may benefit from improved chunking strategies and require work
 to improve chunking algorithms._
 
-## Configuration
-
-### Environment variables
-
-| Variable            | Default                              | Description                     |
-| ------------------- | ------------------------------------ | ------------------------------- |
-| `LUMEN_BACKEND`     | `ollama`                             | Backend: `ollama` or `lmstudio` |
-| `LUMEN_EMBED_MODEL` | `ordis/jina-embeddings-v2-base-code` | Embedding model                 |
-| `OLLAMA_HOST`       | `http://localhost:11434`             | Ollama server URL               |
-| `LM_STUDIO_HOST`    | `http://localhost:1234`              | LM Studio server URL            |
-
-### Purge index data
-
-To remove all lumen index databases:
-
-```bash
-lumen purge
-```
-
-This deletes `~/.local/share/lumen/`. Indexes are rebuilt automatically on the
-next search.
-
 ## CLI
 
-The `lumen index` command lets you pre-index a project from the terminal.
+The CLI, which you can download from the
+[GitHub releases page](https://github.com/ory/lumen/releases), provides
+additional functionality for managing indexes and configuration.
+
+Then, check the help:
 
 ```bash
-lumen index <project-path>
-```
-
-| Flag      | Short | Default                                 | Description                                |
-| --------- | ----- | --------------------------------------- | ------------------------------------------ |
-| `--model` | `-m`  | `$LUMEN_EMBED_MODEL` or backend default | Embedding model to use                     |
-| `--force` | `-f`  | false                                   | Force full re-index (skip freshness check) |
-
-**Examples:**
-
-```bash
-# Index using the default model
-lumen index ~/workspace/myproject
-
-# Force a full re-index
-lumen index --force ~/workspace/myproject
-
-# Use a specific model
-lumen index -m nomic-embed-text ~/workspace/myproject
+lumen help
 ```
 
 ## Configuration
