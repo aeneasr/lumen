@@ -1,0 +1,309 @@
+Now I'll give you a comprehensive explanation of ripgrep's search pipeline based on the actual code from the fixture.
+
+## Ripgrep Search Pipeline Architecture
+
+### High-Level Flow
+
+The search pipeline follows this end-to-end flow:
+```
+Files/Stdin → Walk Builder (Parallel) → Matcher (Pattern) → Searcher → Sink (Printer) → Output
+```
+
+---
+
+## 1. File Walking & Parallelization
+
+**Sequential Path:**
+```rust
+// rg-main.rs:107-151
+fn search(args: &HiArgs, mode: SearchMode) -> anyhow::Result<bool> {
+    let unsorted = args.walk_builder()?.build()
+        .filter_map(|result| haystack_builder.build_from_result(result));
+    let haystacks = args.sort(unsorted);
+    
+    for haystack in haystacks {
+        let search_result = searcher.search(&haystack)?;
+    }
+}
+```
+
+**Parallel Path:**
+```rust
+// rg-main.rs:160-208
+fn search_parallel(args: &HiArgs, mode: SearchMode) -> anyhow::Result<bool> {
+    let matched = AtomicBool::new(false);
+    let stats = args.stats().map(std::sync::Mutex::new);
+    
+    args.walk_builder()?.build_parallel().run(|| {
+        Box::new(move |result| {
+            let haystack = haystack_builder.build_from_result(result)?;
+            let search_result = searcher.search(&haystack)?;
+            // Thread-safe aggregation via AtomicBool & Mutex<Stats>
+            matched.store(true, Ordering::SeqCst);
+            bufwtr.print(searcher.printer().get_mut())?;
+        })
+    });
+}
+```
+
+**Key Points:**
+- `WalkBuilder::build()` → sequential iterator over `DirEntry` results
+- `WalkBuilder::build_parallel()` → returns `WalkParallel` 
+- `.run(|| closure)` creates a closure per worker thread
+- Each worker receives `DirEntry` results from `ignore` crate
+- Results filtered through `.gitignore`, `.ignore`, `.lumenignore`, and file type filters
+- **Parallelization happens at file discovery level** — each thread gets its own `SearchWorker` (cloned)
+
+---
+
+## 2. Searcher/Matcher/Sink Architecture
+
+### Matcher Trait (Pattern Matching Layer)
+
+From `rg-matcher-lib.rs:546-648`:
+
+```rust
+pub trait Matcher {
+    type Captures: Captures;
+    type Error: std::fmt::Display;
+    
+    // Core matching operations
+    fn find_at(&self, haystack: &[u8], at: usize) 
+        -> Result<Option<Match>, Self::Error>;
+    
+    fn find_iter<F>(&self, haystack: &[u8], matched: F)
+        -> Result<(), Self::Error>
+        where F: FnMut(Match) -> bool;
+    
+    fn is_match(&self, haystack: &[u8]) 
+        -> Result<bool, Self::Error>;
+    
+    // Line-oriented optimization
+    fn find_candidate_line(&self, haystack: &[u8])
+        -> Result<Option<LineMatchKind>, Self::Error>;
+    
+    fn line_terminator(&self) -> Option<LineTerminator>;
+    
+    fn non_matching_bytes(&self) -> Option<&ByteSet>;
+}
+
+pub enum LineMatchKind {
+    Confirmed(usize),      // Definite match in line
+    Candidate(usize),      // Probable match, needs verification
+}
+```
+
+**Pattern Matcher Enum:**
+```rust
+// rg-search.rs:193-197
+pub(crate) enum PatternMatcher {
+    RustRegex(grep::regex::RegexMatcher),
+    #[cfg(feature = "pcre2")]
+    PCRE2(grep::pcre2::RegexMatcher),
+}
+```
+
+---
+
+### Searcher Type (Core Search Engine)
+
+From `rg-searcher-lib.rs` (public docs):
+
+```rust
+pub struct Searcher {
+    // Internal: manages line iteration, binary detection, context lines
+    // Core responsibility: Read bytes → Apply Matcher → Report to Sink
+}
+
+impl Searcher {
+    pub fn search_path<M: Matcher, S: Sink>(
+        &mut self,
+        matcher: &M,
+        path: &Path,
+        sink: &mut S,
+    ) -> io::Result<()>;
+    
+    pub fn search_reader<M: Matcher, S: Sink, R: Read>(
+        &mut self,
+        matcher: &M,
+        reader: &mut R,
+        sink: &mut S,
+    ) -> io::Result<()>;
+    
+    pub fn set_binary_detection(&mut self, bin: BinaryDetection);
+}
+```
+
+**Searcher workflow:**
+1. Opens file or reads from stdin
+2. Detects binary content (configurable: implicit/explicit/disabled)
+3. Iterates line-by-line using `LineIter`
+4. For each line: calls `matcher.find_iter()` to find all matches
+5. For each match: calls `sink.match_line()` with context
+6. Aggregates stats (bytes, lines, matches)
+
+---
+
+### Sink Trait (Output Layer)
+
+The Searcher doesn't know about output — it delegates to **Sink**:
+
+```rust
+// From grep-searcher crate (referenced in rg-searcher-lib.rs docs)
+pub trait Sink {
+    type Error;
+    
+    fn begin(&mut self, context: &SinkContext) -> Result<bool, Self::Error>;
+    
+    fn match_line(&mut self, context: &SinkContext, sink_match: &SinkMatch) 
+        -> Result<bool, Self::Error>;
+    
+    fn context_line(&mut self, context: &SinkContext, line_number: u64, line: &[u8])
+        -> Result<bool, Self::Error>;
+    
+    fn finish(&mut self, context: &SinkContext, sink_finish: &SinkFinish) 
+        -> Result<(), Self::Error>;
+}
+
+pub struct SinkContext {
+    path: &Path,
+    line_number: u64,
+}
+
+pub struct SinkMatch {
+    bytes: &[u8],
+    offset: usize,
+}
+```
+
+---
+
+## 3. Grep/Searcher Interaction
+
+From `rg-search.rs:380-449` (The key integration point):
+
+```rust
+fn search_path<M: Matcher, W: WriteColor>(
+    matcher: M,
+    searcher: &mut grep::searcher::Searcher,
+    printer: &mut Printer<W>,
+    path: &Path,
+) -> io::Result<SearchResult> {
+    match *printer {
+        Printer::Standard(ref mut p) => {
+            // 1. Printer creates a Sink configured for this matcher & path
+            let mut sink = p.sink_with_path(&matcher, path);
+            
+            // 2. Searcher delegates to Sink
+            searcher.search_path(&matcher, path, &mut sink)?;
+            
+            // 3. Sink aggregates results
+            Ok(SearchResult {
+                has_match: sink.has_match(),
+                stats: sink.stats().map(|s| s.clone()),
+            })
+        }
+    }
+}
+
+fn search_reader<M: Matcher, R: io::Read, W: WriteColor>(
+    matcher: M,
+    searcher: &mut grep::searcher::Searcher,
+    printer: &mut Printer<W>,
+    path: &Path,
+    mut rdr: R,
+) -> io::Result<SearchResult> {
+    // Same pattern for stdin/preprocessed content
+    searcher.search_reader(&matcher, &mut rdr, &mut sink)?;
+}
+```
+
+**Interaction Flow:**
+1. `SearchWorker.search()` — main orchestrator
+2. Calls `search_path()` or `search_reader()` based on input type
+3. Dispatches on `PatternMatcher` enum (Rust regex vs PCRE2)
+4. Creates matcher instance
+5. **Searcher receives `(Matcher, Reader/Path, Sink)`**
+6. Searcher controls iteration, Matcher handles pattern matching, Sink receives results
+
+---
+
+## 4. Result Flow to Output
+
+### Printer/Sink Types
+
+```rust
+// rg-search.rs:203-211
+pub(crate) enum Printer<W> {
+    Standard(grep::printer::Standard<W>),
+    Summary(grep::printer::Summary<W>),
+    JSON(grep::printer::JSON<W>),
+}
+```
+
+**Each implements `Sink`:**
+- **Standard:** Line-by-line output with colors, line numbers, context
+- **Summary:** Aggregate counts (matches, files, bytes)
+- **JSON:** JSON Lines format for machine consumption
+
+### Output Flow Diagram
+
+```
+Searcher
+  ├─ For each line:
+  │  └─ matcher.find_iter(line)
+  │     └─ sink.match_line(SinkMatch { bytes, offset })
+  │        └─ Printer writes formatted output to W (WriteColor)
+  │
+  └─ On finish:
+     └─ sink.finish()
+        └─ Stats aggregation
+```
+
+**From `rg-main.rs:434-483`:**
+
+```rust
+// Stats collection from all parallel workers
+if let Some(ref locked_stats) = stats {
+    let stats = locked_stats.lock().unwrap();
+    let mut wtr = searcher.printer().get_mut();
+    let _ = print_stats(mode, &stats, started_at, &mut wtr);
+}
+
+// Parallel output buffering via BufferWriter
+bufwtr.print(searcher.printer().get_mut())?;
+```
+
+**For parallel mode:**
+- Each worker writes to its own buffer (via `printer.get_mut().clear()`)
+- `BufferWriter::print()` serializes output to prevent interleaving
+- **Atomic<bool>** flags matches found
+- **Mutex<Stats>** aggregates counters across threads
+
+---
+
+## 5. Key Method Signatures
+
+| Type | Method | Purpose |
+|------|--------|---------|
+| **Matcher** | `find_at(haystack, at)` | Find next match after position |
+| **Matcher** | `find_iter(haystack, \|m\| {})` | Iterate all matches in line |
+| **Matcher** | `find_candidate_line(haystack)` | Fast line-level pre-filter |
+| **Searcher** | `search_path(matcher, path, sink)` | Search file on disk |
+| **Searcher** | `search_reader(matcher, reader, sink)` | Search from reader |
+| **Sink** | `match_line(context, sink_match)` | Called when match found |
+| **Sink** | `context_line(context, lnum, line)` | Called for context lines |
+| **SearchWorker** | `search(haystack)` | Routing: dispatches to search_path/reader |
+| **WalkBuilder** | `build()` | Sequential file walker |
+| **WalkBuilder** | `build_parallel()` → `run(\|\| closure)` | Parallel walker with worker closure |
+
+---
+
+## 6. Architecture Highlights
+
+1. **Trait-based abstraction:** Matcher, Sink, and Searcher are decoupled
+2. **Line-oriented optimization:** `find_candidate_line()` allows fast pre-filtering before full regex
+3. **Zero-copy streaming:** Results flow directly from Searcher to Sink with no intermediate collection
+4. **Parallelization at walker level:** Each thread gets own Searcher instance, synchronized output via BufferWriter & Mutex
+5. **Multi-format output:** Single search pipeline feeds into Standard/Summary/JSON printers without code duplication
+6. **Binary detection:** Configurable per-file, prevents searching corrupted data

@@ -1,0 +1,171 @@
+## Ripgrep Search Pipeline Architecture
+
+I've analyzed the ripgrep fixtures to map the end-to-end search pipeline. Here's the complete architecture:
+
+### 1. **Core Searcher/Matcher/Sink Architecture**
+
+The pipeline uses a **three-trait pattern** with "internal iteration" (push model):
+
+```rust
+// Matcher: Drives search with callbacks
+pub trait Matcher {
+    fn find_iter<F>(&self, haystack: &[u8], matched: F) 
+        -> Result<(), Self::Error> 
+        where F: FnMut(Match) -> bool;
+    
+    fn try_find_iter_at<F, E>(&self, haystack: &[u8], at: usize, matched: F) 
+        -> Result<Result<(), E>, Self::Error> 
+        where F: FnMut(Match) -> Result<bool, E>;
+}
+
+// Sink: Consumes results from Searcher
+// Methods: begin(), match_line(), context_line(), finish()
+
+// Searcher: Orchestrates matching
+impl Searcher {
+    pub fn search_path<M: Matcher, W: WriteColor>(
+        matcher: M,
+        searcher: &mut Searcher,
+        printer: &mut Printer<W>,
+        path: &Path,
+    ) -> io::Result<SearchResult>;
+}
+```
+
+**Key insight**: The Matcher is "pull-based" but callbacks are "push-based" - matchers control iteration and invoke callbacks on matches.
+
+### 2. **Parallelization Architecture**
+
+**Single-threaded walk** (sequential file processing):
+```
+WalkBuilder::build() 
+  → Walk (Iterator<Item = DirEntry>)
+  → HaystackBuilder::build_from_result(DirEntry)
+  → SearchWorker::search(Haystack)
+```
+
+**Multi-threaded walk** (parallel file processing):
+```
+WalkBuilder::build_parallel()
+  → WalkParallel::run(|| { closure })
+  → Each thread gets:
+    - Box<dyn ParallelVisitor> implementation
+    - Thread-local SearchWorker
+    - BufferedWriter for synchronized output
+  → Returns WalkState::Continue or WalkState::Quit
+```
+
+The `ignore` crate's `WalkParallel` spawns thread-local closures that process `DirEntry` results:
+
+```rust
+walk_builder.build_parallel().run(|| {
+    Box::new(move |result: Result<DirEntry, Error>| {
+        // Thread-local SearchWorker
+        let haystack = HaystackBuilder::build_from_result(result)?;
+        let search_result = worker.search(&haystack)?;
+        
+        // Thread-safe output via BufferWriter
+        bufwtr.print(worker.printer())?;
+        
+        if search_result.has_match() {
+            matched.store(true, Ordering::SeqCst);
+        }
+        
+        if quit_after_match {
+            WalkState::Quit
+        } else {
+            WalkState::Continue
+        }
+    })
+})
+```
+
+### 3. **How Grep and Searcher Interact**
+
+**SearchWorker** acts as the glue layer:
+
+```rust
+pub struct SearchWorker<W: WriteColor> {
+    matcher: RegexMatcher,
+    searcher: Searcher,
+    printer: Printer<W>,
+    preprocessor: Option<Command>,
+    // ...
+}
+
+impl<W: WriteColor> SearchWorker<W> {
+    pub fn search(&mut self, haystack: &Haystack) -> io::Result<SearchResult> {
+        match haystack {
+            Haystack::Path(path) => self.search_path(path),
+            Haystack::Stdin => self.search_reader(stdin()),
+        }
+    }
+    
+    fn search_path(&mut self, path: &Path) -> io::Result<SearchResult> {
+        let mut rdr = open_file(path)?;
+        self.search_reader(path, &mut rdr)
+    }
+    
+    fn search_reader<R: io::Read>(&mut self, path: &Path, rdr: R) 
+        -> io::Result<SearchResult> {
+        // Calls searcher.search_path/reader() with matcher & printer
+        self.searcher.search(
+            self.matcher.clone(),
+            self.printer,
+            path,
+            rdr,
+        )
+    }
+}
+```
+
+### 4. **Result Flow Through Pipeline**
+
+```
+File Discovery
+  ↓
+HaystackBuilder (applies app-level filtering)
+  ↓
+SearchWorker.search(Haystack)
+  ↓
+Searcher.search_reader() (memory maps/reads bytes)
+  ↓
+Matcher.find_iter_at() (pattern matching with internal iteration)
+  ↓
+Sink callbacks (match_line, context_line)
+  ↓
+Printer.print() (format & output)
+  ↓
+BufferedWriter (synchronized thread output)
+```
+
+### 5. **Output Layer (Printer Types)**
+
+```rust
+pub enum Printer<W: WriteColor> {
+    Standard(grep::printer::Standard<W>),    // grep-like format with colors
+    Summary(grep::printer::Summary<W>),      // aggregate stats
+    JSON(grep::printer::JSON<W>),            // JSON Lines format
+}
+
+// All implement the Sink trait to receive match callbacks
+impl<W: WriteColor> Sink for Standard<W> {
+    fn begin(&mut self, searcher: &Searcher, ...) -> io::Result<bool>;
+    fn match_line(&mut self, sink_match: &SinkMatch, ...) -> io::Result<bool>;
+    fn context(&mut self, context: &[u8], ...) -> io::Result<bool>;
+    fn finish(&mut self, path: &Path, ...) -> io::Result<bool>;
+}
+```
+
+### 6. **Key Design Patterns**
+
+| Pattern | Purpose |
+|---------|---------|
+| **Matcher trait** | Pluggable pattern matching (Regex, PCRE2) with "push" callbacks |
+| **Sink trait** | Abstract result consumption (printing, aggregation, streaming) |
+| **Internal iteration** | Matcher controls loop; allows efficient short-circuiting |
+| **ParallelVisitor** | Thread-local state per directory traversal worker |
+| **BufferWriter** | Serializes output from parallel threads without data races |
+| **Haystack enum** | Abstracts file vs. stdin sources |
+
+This architecture allows ripgrep to scale: file discovery and search are embarrassingly parallel, output is serialized but buffered, and each thread maintains isolated state.

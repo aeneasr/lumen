@@ -1,0 +1,240 @@
+Based on my analysis of the Express source code in the fixtures, here's a comprehensive explanation of how Express handles the full request/response lifecycle:
+
+## Express Request/Response Lifecycle
+
+### **Application Creation & Middleware Stack** (express-express.js:36-56)
+
+```javascript
+function createApplication() {
+  var app = function(req, res, next) {
+    app.handle(req, res, next);
+  };
+
+  mixin(app, EventEmitter.prototype, false);
+  mixin(app, proto, false);  // Attach proto methods
+
+  // Custom request/response prototypes with app context
+  app.request = Object.create(req, {
+    app: { configurable: true, enumerable: true, writable: true, value: app }
+  })
+  
+  app.response = Object.create(res, {
+    app: { configurable: true, enumerable: true, writable: true, value: app }
+  })
+
+  app.init();  // Initialize middleware stack
+  return app;
+}
+```
+
+**Key insight**: The app itself is callable `(req, res, next)` and delegates to `app.handle()`.
+
+---
+
+### **Middleware Chaining & Composition**
+
+Express uses a **middleware stack** pattern:
+
+```
+Request → [Middleware 1] → [Middleware 2] → [Router] → [Error Handler] → Response
+          |                |               |
+          next()          next()           next() or send()
+```
+
+**Signature Pattern**:
+- **Normal middleware**: `(req, res, next) => void`
+- **Error middleware**: `(err, req, res, next) => void`  (arity = 4)
+
+**Example flow**:
+```javascript
+app.use(cors());              // Middleware 1
+app.use(bodyParser.json());   // Middleware 2
+app.use('/api', apiRouter);   // Mount router
+app.use((err, req, res, next) => { /* Error handler */ }); // Error middleware
+```
+
+---
+
+### **Router & Route Mounting** (express-application.js)
+
+The **Router** is the core routing mechanism:
+
+```javascript
+// Router instance stores routes in layers
+Router.prototype.route = function(path) {
+  return new Route(path);
+};
+
+// app.use and route.METHOD compose via:
+app.use('/api', router);     // Mounts router at /api path
+app.get('/path', handler);   // Registers route + method
+
+// Router stack contains Layer objects:
+Router.prototype.stack = [];  // Array of Layer objects
+```
+
+**Route Method Signatures**:
+```javascript
+app.get(path, [middleware...], handler)
+app.post(path, [middleware...], handler)
+app.use(path, [middleware...] | router)
+```
+
+Multiple middlewares chain before the final handler:
+```javascript
+app.post('/user', authenticate, validate, createUser);
+//         ↓           ↓           ↓         ↓
+//      path       mw[0]       mw[1]     final handler
+```
+
+---
+
+### **Request Dispatch Flow**
+
+When `app.handle(req, res, next)` is called:
+
+1. **Find matching layers** in the middleware stack
+2. **Execute layers sequentially** via `next()` callback
+3. **Execute route handlers** if path matches
+4. **Error handling** if `next(err)` is called
+
+**Pseudocode**:
+```javascript
+app.handle = function(req, res, next) {
+  var idx = 0;
+  var stack = this._router.stack;
+  
+  function dispatch(err) {
+    if (err) {
+      // Jump to error middleware (arity = 4)
+      // Find next layer with 4 params
+    }
+    
+    var layer = stack[idx++];
+    if (!layer) return;
+    
+    // Check if path matches layer.regexp
+    if (layer.match(req.pathname)) {
+      layer.handle_request(req, res, dispatch);  // Pass next callback
+    } else {
+      dispatch();  // Skip to next layer
+    }
+  }
+  
+  dispatch();
+};
+```
+
+---
+
+### **Key Differences: Error Middleware vs Regular Middleware**
+
+| Aspect | Regular Middleware | Error Middleware |
+|--------|-------------------|-----------------|
+| **Arity** | 3 parameters | 4 parameters: `(err, req, res, next)` |
+| **Signature** | `(req, res, next)` | `(err, req, res, next)` |
+| **When executed** | Always if path matches | Only when `next(error)` called |
+| **Usage** | `app.use(middleware)` | `app.use((err, req, res, next) => {})` |
+| **Position** | Anywhere in stack | **Must be last** to catch errors from earlier layers |
+
+**Error flow**:
+```javascript
+app.use((req, res, next) => {
+  next(new Error('Something broke'));  // Pass error
+});
+
+// Jump to error middleware with arity=4
+app.use((err, req, res, next) => {
+  res.status(500).send(err.message);  // Caught here
+});
+```
+
+---
+
+### **Router Instance Architecture**
+
+```javascript
+function Router(options) {
+  this.stack = [];      // Layer stack
+  this.params = {};     // Route params
+  this._params = [];    // Param handlers
+}
+
+Router.prototype.layer = function(path, options, fn) {
+  var layer = new Layer(path, options, fn);
+  this.stack.push(layer);
+  return layer;
+};
+
+// Layer represents a middleware or route
+function Layer(path, options, fn) {
+  this.handle = fn;              // The actual middleware function
+  this.name = fn.name;
+  this.params = undefined;
+  this.path = undefined;
+  this.regexp = pathToRegexp(path);  // Convert /users/:id to regex
+  this.method = undefined;       // GET, POST, etc.
+}
+
+Layer.prototype.match = function(path) {
+  return this.regexp.test(path);
+};
+```
+
+---
+
+### **app.use vs Route Mounting**
+
+**app.use** - Generic middleware:**
+```javascript
+app.use((req, res, next) => { next(); });  // All methods, all paths (if mounts)
+app.use('/api', apiRouter);                 // Mount router on prefix
+```
+
+**Route methods** - Specific path + method:
+```javascript
+app.get('/users/:id', handler);       // Only GET /users/:id
+app.post('/users', createHandler);    // Only POST /users
+```
+
+**Composition in practice**:
+```javascript
+// 1. Global auth middleware
+app.use(authenticate);
+
+// 2. Router with multiple routes
+const router = express.Router();
+router.get('/:id', getUser);
+router.put('/:id', updateUser);
+router.delete('/:id', deleteUser);
+app.use('/users', router);
+
+// 3. Error handling (must be last)
+app.use((err, req, res, next) => {
+  res.status(err.status).send(err);
+});
+```
+
+---
+
+### **Request Path in Handler**
+
+Handlers receive:
+```javascript
+// Original path
+req.originalUrl   // "/api/users/123"
+
+// Processed path (after mounts)
+req.baseUrl       // "/api"
+req.path          // "/users/123"
+
+// Route params extracted by regex matching
+req.params        // { id: "123" }
+
+// Query string
+req.query         // Parsed query params
+
+// Middleware can modify, next() passes to next layer
+```
+
+This middleware chaining, explicit `next()` calling, and arity-based error detection form the core of Express's elegant request handling model.

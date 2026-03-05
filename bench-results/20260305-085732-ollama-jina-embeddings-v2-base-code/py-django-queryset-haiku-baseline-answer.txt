@@ -1,0 +1,357 @@
+## Django QuerySet Evaluation and Filtering Pipeline
+
+Based on the testdata, here's how Django's QuerySet system works:
+
+### **1. QuerySet Chaining (Lazy Evaluation)**
+
+**Key Design**: QuerySet methods return new QuerySet clones, building a fluent chain without executing SQL.
+
+```python
+# django-query.py:303-322
+class QuerySet(AltersData):
+    """Represent a lazy database lookup for a set of objects."""
+    
+    def __init__(self, model=None, query=None, using=None, hints=None):
+        self.model = model
+        self._db = using
+        self._hints = hints or {}
+        self._query = query or sql.Query(self.model)
+        self._result_cache = None  # Cache for evaluated results
+        self._sticky_filter = False
+        self._for_write = False
+        self._prefetch_related_lookups = ()
+        self._iterable_class = ModelIterable
+        self._fields = None
+```
+
+**Core Pattern - `_chain()` creates new instance:**
+```python
+# Creates a copy of the QuerySet without executing queries
+def _chain(self):
+    """Return a copy of the current QuerySet."""
+    clone = self._clone()
+    return clone
+```
+
+**Chainable Methods Return New QuerySets:**
+```python
+# django-query.py:1624-1630
+def filter(self, *args, **kwargs):
+    """Return a new QuerySet instance with the args ANDed to the existing set."""
+    self._not_support_combined_queries("filter")
+    return self._filter_or_exclude(False, args, kwargs)
+
+def exclude(self, *args, **kwargs):
+    """Return a new QuerySet instance with NOT (args) ANDed to the existing set."""
+    self._not_support_combined_queries("exclude")
+    return self._filter_or_exclude(True, args, kwargs)
+
+def all(self):
+    """Return a new QuerySet that is a copy of the current one."""
+    return self._chain()
+```
+
+### **2. The Query Class (Represents SQL State)**
+
+```python
+# django-sql-query.py:6-45
+class SQLQuery:
+    """Represent a structured SQL query."""
+    
+    compiler = "SQLCompiler"
+    _db = None
+
+    def __init__(self, model=None, where=None, alias_map=None):
+        self.model = model
+        self.where = where or WhereNode()
+        self.alias_map = alias_map or {}
+        self.tables = []
+        self.select = []
+        self.group_by = None
+        self.order_by = []
+        self.distinct = False
+        self.distinct_fields = []
+        self.standard_ordering = True
+        self.select_related = False
+        self.max_depth = 5
+        self.values_select = ()
+        self.annotation_select_mask = None
+        self.extra_select_mask = None
+        self._extra = {}
+        self._annotations = {}
+
+    def get_compiler(self, using=None, connection=None, elide_empty=True):
+        """Return a compiler instance for this query."""
+        if using:
+            from django.db import connections
+            connection = connections[using]
+        return connection.ops.compiler(self.compiler)(
+            self, connection, using, elide_empty=elide_empty
+        )
+
+    def as_sql(self, compiler=None, connection=None):
+        """Return the query as an SQL string and parameters."""
+        compiler = compiler or self.get_compiler(connection=connection)
+        return compiler.as_sql()
+
+    def clone(self):
+        """Return a copy of the current query."""
+        obj = self.__class__(model=self.model)
+        obj.where = self.where.clone()
+        obj.alias_map = self.alias_map.copy()
+        # ... copy all attributes
+        return obj
+```
+
+**WhereNode - Represents WHERE Clause:**
+```python
+# django-sql-query.py:103-130
+class WhereNode:
+    """Represent an SQL WHERE clause."""
+    
+    default_connector = "AND"
+
+    def __init__(self, children=None, connector=None, negated=False):
+        self.children = children or []  # List of filter conditions
+        self.connector = connector or self.default_connector  # AND/OR
+        self.negated = negated  # NOT
+
+    def add(self, node, connector):
+        """Add a filter to the WHERE clause."""
+        if self.connector == connector:
+            self.children.append(node)
+        else:
+            new_node = WhereNode(
+                children=self.children[:], 
+                connector=self.connector
+            )
+            self.children = [new_node, node]
+            self.connector = connector
+
+    def negate(self):
+        self.negated = not self.negated
+
+    def clone(self):
+        """Deep copy the WHERE tree."""
+        obj = WhereNode(
+            children=[
+                c.clone() if hasattr(c, "clone") else c 
+                for c in self.children
+            ],
+            connector=self.connector,
+            negated=self.negated,
+        )
+        return obj
+```
+
+### **3. Filter Compilation via Q Objects**
+
+**Q Object - Combines Filters Logically:**
+```python
+# django-q.py:9-96
+class Q:
+    """Encapsulate filters as objects that can be combined with & (AND) and | (OR)."""
+    
+    AND = "AND"
+    OR = "OR"
+    XOR = "XOR"
+
+    def __init__(self, *args, _connector=None, _negated=False, **kwargs):
+        self.children = list(args) + sorted(kwargs.items())  # Filters
+        self.connector = _connector or self.AND
+        self.negated = _negated
+
+    def __and__(self, other):
+        return self._combine(other, self.AND)
+
+    def __or__(self, other):
+        return self._combine(other, self.OR)
+
+    def __invert__(self):  # NOT
+        obj = self.copy()
+        obj.negated = not self.negated
+        return obj
+
+    def _combine(self, other, conn):
+        """Combine Q objects using the given connector."""
+        if not isinstance(other, Q):
+            raise TypeError(other)
+        
+        if not self:
+            return other.copy()
+        if not other:
+            return self.copy()
+
+        obj = self.__class__()
+        obj.connector = conn
+        obj.add(self, conn)
+        obj.add(other, conn)
+        return obj
+
+    def resolve_expression(self, query, allow_joins=True, reuse=None, 
+                          summarize=False):
+        """Resolve the Q object into a WhereNode for the query compiler."""
+        clause, joins = query._add_q(
+            self, reuse, allow_joins=allow_joins, split_subq=False
+        )
+        query.promote_joins(joins)
+        return clause
+```
+
+**QuerySet Applies Q Objects:**
+```python
+# django-query.py:1640-1658
+def _filter_or_exclude(self, negate, args, kwargs):
+    """Core filtering implementation."""
+    if (args or kwargs) and self.query.is_sliced:
+        raise TypeError("Cannot filter a query once a slice has been taken.")
+    
+    clone = self._chain()  # Create new QuerySet
+    if self._defer_next_filter:
+        self._defer_next_filter = False
+        clone._deferred_filter = negate, args, kwargs
+    else:
+        clone._filter_or_exclude_inplace(negate, args, kwargs)
+    return clone
+
+def _filter_or_exclude_inplace(self, negate, args, kwargs):
+    """Add Q object to the query's WHERE clause."""
+    if negate:
+        self._query.add_q(~Q(*args, **kwargs))  # NOT (Q)
+    else:
+        self._query.add_q(Q(*args, **kwargs))   # Q
+```
+
+### **4. QuerySet Properties (Lazy)**
+
+```python
+# django-query.py:323-329
+@property
+def query(self):
+    """Access the underlying Query object."""
+    if self._deferred_filter:
+        # Apply deferred filters before returning
+        negate, args, kwargs = self._deferred_filter
+        self._filter_or_exclude_inplace(negate, args, kwargs)
+        self._deferred_filter = None
+    return self._query
+
+@query.setter
+def query(self, value):
+    if value.values_select:
+        self._iterable_class = ValuesIterable
+    self._query = value
+```
+
+### **5. Evaluation Triggers**
+
+Evaluation only happens when:
+```python
+# django-query.py:392-427
+def __len__(self):
+    self._fetch_all()  # Executes query
+    return len(self._result_cache)
+
+def __iter__(self):
+    """Iterate triggers _fetch_all."""
+    self._fetch_all()
+    return iter(self._result_cache)
+
+def __bool__(self):
+    self._fetch_all()
+    return bool(self._result_cache)
+
+def _fetch_all(self):
+    """Execute the query if not cached."""
+    if self._result_cache is None:
+        self._result_cache = list(self._iterator(...))
+```
+
+### **6. Manager Ties It All Together**
+
+```python
+# django-manager.py:10-155
+class BaseManager:
+    """Manages QuerySet creation and proxies QuerySet methods."""
+    
+    def __init__(self):
+        self.model = None
+        self.name = None
+        self._db = None
+        self._hints = {}
+
+    def get_queryset(self):
+        """Return a new QuerySet for this manager."""
+        return self._queryset_class(
+            model=self.model, 
+            using=self._db, 
+            hints=self._hints
+        )
+
+    @classmethod
+    def from_queryset(cls, queryset_class, class_name=None):
+        """Create a manager that inherits QuerySet methods."""
+        return type(
+            class_name or f"{cls.__name__}From{queryset_class.__name__}",
+            (cls,),
+            {
+                "_queryset_class": queryset_class,
+                **cls._get_queryset_methods(queryset_class),
+            },
+        )
+
+    @classmethod
+    def _get_queryset_methods(cls, queryset_class):
+        """Dynamically add QuerySet methods to the Manager."""
+        def create_method(name, method):
+            @wraps(method)
+            def manager_method(self, *args, **kwargs):
+                return getattr(self.get_queryset(), name)(*args, **kwargs)
+            return manager_method
+
+        new_methods = {}
+        for name, method in inspect.getmembers(
+            queryset_class, predicate=inspect.isfunction
+        ):
+            if hasattr(cls, name):
+                continue
+            queryset_only = getattr(method, "queryset_only", None)
+            if queryset_only or (queryset_only is None and name.startswith("_")):
+                continue
+            new_methods[name] = create_method(name, method)
+        return new_methods
+
+# Standard Manager
+class Manager(BaseManager.from_queryset(QuerySet)):
+    pass
+```
+
+### **Key Execution Flow**
+
+```
+User Code: Book.objects.filter(title='Django').exclude(author='Jane')
+    ↓
+Manager (objects): get_queryset() → QuerySet(model=Book)
+    ↓
+QuerySet.filter(title='Django'): _filter_or_exclude() → Q(title='Django') → query.add_q()
+    ↓ [Returns new QuerySet clone with updated query]
+    ↓
+QuerySet.exclude(author='Jane'): _filter_or_exclude() → ~Q(author='Jane') → query.add_q()
+    ↓ [Returns new QuerySet clone with updated query]
+    ↓
+Evaluation [iteration/len/bool]: _fetch_all() → query.get_compiler() → execute_sql()
+    ↓
+Results cached in _result_cache
+```
+
+### **Summary**
+
+| Component | Purpose |
+|-----------|---------|
+| **QuerySet** | Lazy ORM interface; stores model + query state |
+| **Query** | Represents SQL structure (SELECT, WHERE, ORDER BY, etc.) |
+| **Q Object** | Encodes filter logic; combines with &/\|/~ operators |
+| **WhereNode** | Tree of filter conditions; tracks AND/OR/NOT |
+| **Manager** | Factory for QuerySet; proxies query methods to instances |
+| **_chain()** | Creates QuerySet copies—enables method chaining |
+| **_fetch_all()** | Lazy evaluation trigger—only executes on access |

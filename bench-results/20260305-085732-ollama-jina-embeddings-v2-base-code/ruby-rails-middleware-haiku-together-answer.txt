@@ -1,0 +1,201 @@
+Here's a comprehensive explanation of how the Rails middleware stack works based on the codebase:
+
+## Rack Middleware Fundamentals
+
+Middleware follows the Rack protocol: it's a callable object (class or lambda) that responds to `call(env)` and returns a response tuple `[status, headers, body]`.
+
+```ruby
+# Basic middleware signature
+class MyMiddleware
+  def initialize(app)
+    @app = app
+  end
+
+  def call(env)
+    # Pre-processing
+    status, headers, body = @app.call(env)  # Call next layer
+    # Post-processing
+    [status, headers, body]
+  end
+end
+```
+
+## How Rack Middleware is Assembled
+
+**Rack::Builder** (from Sinatra, metal.rb examples) is the core assembly mechanism:
+
+```ruby
+# Sinatra example from sinatra-base.rb:1670-1676
+def build(app)
+  builder = Rack::Builder.new
+  setup_default_middleware builder    # Add framework middleware
+  setup_middleware builder            # Add user-registered middleware
+  builder.run app                     # Set the endpoint
+  builder                             # Returns a Rack app
+end
+```
+
+The builder maintains a list of middleware and the endpoint. When `.to_app` is called (implicitly when passed to a Rack handler), it constructs the chain by:
+1. Wrapping the endpoint in the innermost middleware
+2. Wrapping that in the next middleware layer
+3. Continuing outward until all middleware are stacked
+
+From sinatra-base.rb:1584-1587, middleware is stored as `[klass, args, block]` tuples:
+
+```ruby
+def use(middleware, *args, &block)
+  @prototype = nil
+  @middleware << [middleware, args, block]
+end
+```
+
+Then iterated during setup:
+
+```ruby
+# sinatra-base.rb:1830-1832
+def setup_middleware(builder)
+  middleware.each { |c, a, b| builder.use(c, *a, &b) }
+end
+```
+
+## ActionDispatch Integration
+
+Rails extends this with **ActionDispatch::MiddlewareStack** and **ActionController::MiddlewareStack** (metal.rb:18-63), which adds per-action filtering:
+
+```ruby
+# ActionController::MiddlewareStack extends with action awareness
+class MiddlewareStack < ActionDispatch::MiddlewareStack
+  class Middleware < ActionDispatch::MiddlewareStack::Middleware
+    def initialize(klass, args, actions, strategy, block)
+      @actions = actions    # :only or :except list
+      @strategy = strategy  # INCLUDE or EXCLUDE lambda
+      super(klass, args, block)
+    end
+
+    def valid?(action)
+      @strategy.call @actions, action  # Check if middleware applies
+    end
+  end
+
+  def build(action, app = nil, &block)
+    action = action.to_s
+    
+    # Fold right through middlewares in reverse, wrapping each
+    middlewares.reverse.inject(app || block) do |a, middleware|
+      middleware.valid?(action) ? middleware.build(a) : a
+    end
+  end
+end
+```
+
+The strategies define inclusion logic:
+
+```ruby
+INCLUDE = ->(list, action) { list.include? action }   # :only applies
+EXCLUDE = ->(list, action) { !list.include? action }  # :except applies
+NULL    = ->(list, action) { true }                   # Always applies
+```
+
+Usage in controllers (metal.rb:293-305):
+
+```ruby
+class PostsController < ApplicationController
+  use AuthenticationMiddleware, except: [:index, :show]  # Custom filtering
+end
+```
+
+## Request Flow Through the Stack
+
+The chain is built and called at request time:
+
+**Engine level** (engine.rb:515-523):
+```ruby
+def app
+  @app ||= @app_build_lock.synchronize {
+    stack = default_middleware_stack
+    config.middleware = build_middleware.merge_into(stack)
+    config.middleware.build(endpoint)  # Build the chain
+  }
+end
+
+def call(env)
+  req = build_request env
+  app.call req.env  # Call the built middleware chain
+end
+```
+
+**Controller level** (metal.rb:315-327):
+```ruby
+def self.action(name)
+  app = lambda { |env|
+    req = ActionDispatch::Request.new(env)
+    res = make_response! req
+    new.dispatch(name, req, res)  # The actual endpoint
+  }
+
+  if middleware_stack.any?
+    middleware_stack.build(name, app)  # Wrap endpoint in action-specific middleware
+  else
+    app
+  end
+end
+```
+
+**Request flow diagram**:
+```
+Request (env hash) arrives
+    ↓
+Engine.call(env)
+    ↓
+app.call(env)  [first middleware layer]
+    ↓
+middleware_layer_1.call(env) → calls app.call(env)
+    ↓
+middleware_layer_2.call(env) → calls app.call(env)
+    ↓
+... (more layers)
+    ↓
+controller_action(env) [endpoint]
+    ↓
+Returns [status, headers, body]
+    ↓
+Bubbles back through middleware for post-processing
+```
+
+## How Custom Middleware is Added
+
+**At Controller level** (metal.rb:293-295):
+```ruby
+class << self
+  def use(...)
+    middleware_stack.use(...)
+  end
+end
+```
+
+**At Engine/Application level** (engine.rb:48-50):
+```ruby
+initializer "my_engine.add_middleware" do |app|
+  app.middleware.use MyEngine::Middleware
+end
+```
+
+**Sinatra style** (sinatra-base.rb):
+```ruby
+class MyApp < Sinatra::Base
+  use MyMiddleware, arg1, arg2
+end
+```
+
+## Key Classes and Call Signatures
+
+| Component | Signature | Purpose |
+|-----------|-----------|---------|
+| **Middleware class** | `def initialize(app)` | Wraps the next app |
+| **Middleware call** | `def call(env)` → `[status, headers, body]` | Processes request/response |
+| **Rack::Builder** | `builder.use(klass, *args)`, `builder.run(app)` | Assembles chain |
+| **MiddlewareStack#build** | `build(action, app=nil)` → callable | Constructs per-action chain |
+| **Middleware#valid?** | `valid?(action)` → boolean | Checks action filtering |
+| **Engine#call** | `call(env)` → `[status, headers, body]` | Top-level Rack entry point |
+
+The middleware stack creates a **nested callable structure** where each layer is responsible for calling the next, allowing request/response interception at every level.

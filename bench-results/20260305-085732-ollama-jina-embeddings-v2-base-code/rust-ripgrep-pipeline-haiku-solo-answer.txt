@@ -1,0 +1,233 @@
+Based on my analysis of the ripgrep codebase, here's how the end-to-end search pipeline works:
+
+## Architecture Overview
+
+Ripgrep's search pipeline follows a **three-layer architecture**: **Matcher** → **Searcher** → **Printer (Sink)**
+
+### 1. **Matcher/Searcher/Sink Architecture**
+
+**Matcher Trait** (rg-matcher-lib.rs:546-648)
+```rust
+pub trait Matcher {
+    type Captures: Captures;
+    type Error: std::fmt::Display;
+
+    fn find_at(&self, haystack: &[u8], at: usize) 
+        -> Result<Option<Match>, Self::Error>;
+    
+    fn find_iter_at<F>(&self, haystack: &[u8], at: usize, matched: F) 
+        -> Result<(), Self::Error>
+        where F: FnMut(Match) -> bool;
+    
+    fn captures_at(&self, haystack: &[u8], at: usize, caps: &mut Self::Captures) 
+        -> Result<bool, Self::Error>;
+    
+    fn line_terminator(&self) -> Option<LineTerminator>;
+    
+    fn find_candidate_line(&self, haystack: &[u8]) 
+        -> Result<Option<LineMatchKind>, Self::Error>;
+}
+```
+
+**PatternMatcher Enum** (rg-search.rs:193)
+```rust
+pub enum PatternMatcher {
+    RustRegex(grep::regex::RegexMatcher),
+    #[cfg(feature = "pcre2")]
+    PCRE2(grep::pcre2::RegexMatcher),
+}
+```
+
+**SearchWorker Struct** (rg-search.rs:230-241)
+```rust
+pub struct SearchWorker<W> {
+    config: Config,
+    command_builder: grep::cli::CommandReaderBuilder,
+    decomp_builder: Option<grep::cli::DecompressionReaderBuilder>,
+    matcher: PatternMatcher,
+    searcher: grep::searcher::Searcher,
+    printer: Printer<W>,
+}
+```
+
+The **searcher** is the grep crate's `Searcher` type (from grep-searcher). It drives the search algorithm, calling methods on `Matcher` to find matches and passing results to a **sink** (output handler).
+
+**Printer/Sink Implementations** (rg-search.rs:203)
+```rust
+pub enum Printer<W> {
+    Standard(grep::printer::Standard<W>),
+    Summary(grep::printer::Summary<W>),
+    JSON(grep::printer::JSON<W>),
+}
+```
+
+Each printer variant implements `sink_with_path()` which creates a sink that:
+- Receives matches from the searcher
+- Formats and buffers results
+- Tracks stats (matches, lines, bytes)
+- Outputs to the provided writer `W` (usually stdout or buffered output)
+
+### 2. **Search Flow**
+
+**Sequential Search** (rg-main.rs:107-151)
+```rust
+fn search(args: &HiArgs, mode: SearchMode) -> anyhow::Result<bool> {
+    let haystacks = args.walk_builder()?.build()     // Walk files
+        .filter_map(|result| haystack_builder.build_from_result(result));
+    
+    for haystack in haystacks {
+        let search_result = searcher.search(&haystack)?;
+        // searcher.search() calls:
+        //   1. searcher.search_path() or search_reader()
+        //   2. which calls searcher.search_path(&matcher, path, &mut sink)
+        //   3. sink receives matches and formats output
+        matched = matched || search_result.has_match();
+    }
+}
+```
+
+**Per-file Search** (rg-search.rs:245-267)
+```rust
+pub fn search(&mut self, haystack: &Haystack) -> io::Result<SearchResult> {
+    if haystack.is_stdin() {
+        self.search_reader(path, &mut io::stdin().lock())
+    } else if self.should_preprocess(path) {
+        self.search_preprocessor(path)
+    } else if self.should_decompress(path) {
+        self.search_decompress(path)
+    } else {
+        self.search_path(path)
+    }
+}
+```
+
+**Sink Creation and Search** (rg-search.rs:380-412)
+```rust
+fn search_path<M: Matcher, W: WriteColor>(
+    matcher: M,
+    searcher: &mut grep::searcher::Searcher,
+    printer: &mut Printer<W>,
+    path: &Path,
+) -> io::Result<SearchResult> {
+    match *printer {
+        Printer::Standard(ref mut p) => {
+            let mut sink = p.sink_with_path(&matcher, path);  // Create sink
+            searcher.search_path(&matcher, path, &mut sink)?; // Search!
+            Ok(SearchResult {
+                has_match: sink.has_match(),
+                stats: sink.stats().map(|s| s.clone()),
+            })
+        }
+        // ... similar for Summary and JSON
+    }
+}
+```
+
+### 3. **Parallel File Walking**
+
+**build_parallel() with Closure Callbacks** (rg-main.rs:160-208)
+```rust
+fn search_parallel(args: &HiArgs, mode: SearchMode) -> anyhow::Result<bool> {
+    let bufwtr = args.buffer_writer();          // Single shared buffer
+    let stats = args.stats().map(std::sync::Mutex::new);  // Guarded stats
+    let matched = AtomicBool::new(false);       // Atomic flags
+    
+    let mut searcher = args.search_worker(...)?;
+    
+    args.walk_builder()?.build_parallel().run(|| {
+        let mut searcher = searcher.clone();     // CLONE per thread!
+        
+        Box::new(move |result| {                 // DirEntry callback
+            let haystack = haystack_builder.build_from_result(result)?;
+            searcher.printer().get_mut().clear(); // Clear buffer
+            let search_result = searcher.search(&haystack)?;
+            
+            if let Some(ref locked_stats) = stats {
+                let mut stats = locked_stats.lock().unwrap();
+                *stats += search_result.stats().unwrap();  // Mutex sync
+            }
+            
+            if let Err(err) = bufwtr.print(searcher.printer().get_mut()) {
+                if err.kind() == std::io::ErrorKind::BrokenPipe {
+                    return WalkState::Quit;      // Signal stop
+                }
+            }
+            WalkState::Continue                  // Keep walking
+        })
+    });
+}
+```
+
+**Key Parallel Patterns:**
+
+| Component | Pattern | Rationale |
+|-----------|---------|-----------|
+| **File Walking** | `build_parallel().run(closure)` | Work-stealing thread pool via `ignore` crate |
+| **SearchWorker** | Clone per thread | Each thread needs its own searcher state |
+| **Printer Buffer** | Clear between files | Each file writes to same buffer, then flush |
+| **Stats** | `Mutex<Stats>` | Aggregate results from all threads |
+| **Output** | `BufferWriter` | Single writer prevents interleaved output |
+| **Control** | `WalkState::Quit/Continue` | Thread pool respects early exit signals |
+
+**Files-Only Parallel** (rg-main.rs:271-326)  
+Uses MPSC channel + dedicated printing thread to avoid buffering contention:
+```rust
+let (tx, rx) = mpsc::channel::<Haystack>();
+let print_thread = thread::spawn(move || {
+    for haystack in rx.iter() {
+        path_printer.write(haystack.path())?;
+    }
+});
+// Worker threads send paths to channel
+```
+
+### 4. **Result Flow to Output Layer**
+
+```
+File (DirEntry)
+    ↓
+Haystack (path metadata wrapper)
+    ↓
+SearchWorker::search()
+    ↓ (dispatches based on file type)
+Searcher::search_path() / search_reader()
+    ↓
+Matcher::find_iter() or captures_iter()
+    ↓ (callbacks for each match)
+Sink::write_match() (from Printer)
+    ↓
+Local buffer (per-worker)
+    ↓
+BufferWriter::print() (synchronized flush)
+    ↓
+Stdout or Pipe
+```
+
+**SearchResult** (rg-search.rs:171-174)
+```rust
+pub struct SearchResult {
+    has_match: bool,
+    stats: Option<grep::printer::Stats>,  // Lines, matches, bytes searched
+}
+```
+
+### 5. **Key Method Signatures**
+
+| Component | Method | Signature |
+|-----------|--------|-----------|
+| **Matcher** | `find_at()` | `(&self, haystack: &[u8], at: usize) -> Result<Option<Match>, Error>` |
+| **Matcher** | `find_iter()` | `(&self, haystack: &[u8], matched: F) -> Result<(), Error>` (closure-based) |
+| **Searcher** | `search_path()` | `(&mut self, matcher: M, path: &Path, sink: &mut S) -> Result<u64>` |
+| **Searcher** | `search_reader()` | `(&mut self, matcher: M, reader: &mut R, sink: &mut S) -> Result<u64>` |
+| **Sink** | `write_match()` | Per-printer; formats and buffers match output |
+| **Printer** | `sink_with_path()` | `(&mut self, matcher: M, path: &Path) -> S` (creates sink) |
+| **SearchWorker** | `search()` | `(&mut self, haystack: &Haystack) -> io::Result<SearchResult>` |
+
+### 6. **Concurrency Guarantees**
+
+- **Thread-safe components**: `BufferWriter` (synchronized flushes), `Mutex<Stats>`, `AtomicBool` flags
+- **Per-thread copies**: `SearchWorker` cloned for each worker thread
+- **No shared mutable state**: Matcher and Searcher not shared; callbacks move results to output layer
+- **Early termination**: `WalkState::Quit` signal propagates to thread pool coordinator
+
+The design achieves **lock-free reads** (matcher/searcher are immutable per-thread) while **synchronized writes** (buffered output prevents tearing).

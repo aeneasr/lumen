@@ -1,0 +1,222 @@
+## PetClinic Domain Model Architecture
+
+### **Entity Hierarchy**
+
+The domain model uses a **multi-level inheritance strategy** with `@MappedSuperclass`:
+
+```
+BaseEntity (abstract)
+    ↓
+NamedEntity (abstract, extends BaseEntity)
+    ├── Person (concrete, abstract for polymorphism)
+    │   ├── Owner
+    │   └── Vet
+    ├── PetType
+    └── Specialty
+
+BaseEntity (abstract)
+    └── Visit (concrete, direct inheritance)
+```
+
+**Key classes:**
+
+| Class | Purpose | Parent |
+|-------|---------|--------|
+| `BaseEntity:13` | Auto-generated ID field | — |
+| `NamedEntity:8` | Shared `name` field with `@NotBlank` validation | `BaseEntity` |
+| `Person:10` | Abstract base for vets & owners with `firstName`, `lastName` | `NamedEntity` |
+| `Owner:49` | Clinic owner with address, city, telephone | `Person` |
+| `Pet:46` | Pet entity with birth date and type | `NamedEntity` |
+| `Visit:36` | Vet visit record | `BaseEntity` |
+| `Vet:45` | Veterinarian with specialties | `Person` |
+| `PetType:28` | Pet type (Dog, Cat, etc.) | `NamedEntity` |
+| `Specialty:30` | Vet specialty (Dentistry, etc.) | `NamedEntity` |
+
+---
+
+### **JPA/Hibernate Relationship Mappings**
+
+#### **1. Owner ↔ Pet (One-to-Many)**
+```java
+// Owner.java:64-67
+@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+@JoinColumn(name = "owner_id")
+@OrderBy("name")
+private final List<Pet> pets = new ArrayList<>();
+```
+- **Cascade**: All operations (persist, remove) cascade to pets
+- **Fetch Strategy**: `EAGER` — pets loaded immediately with owner
+- **Join Column**: Foreign key `owner_id` in `pets` table
+- **Ordering**: Pets sorted by name
+
+#### **2. Pet ↔ PetType (Many-to-One)**
+```java
+// Pet.java:52-54
+@ManyToOne
+@JoinColumn(name = "type_id")
+private PetType type;
+```
+- Direct join to `types` table
+- Default `LAZY` fetch strategy (load on access)
+
+#### **3. Pet ↔ Visit (One-to-Many)**
+```java
+// Pet.java:56-59
+@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+@JoinColumn(name = "pet_id")
+@OrderBy("date ASC")
+private final Set<Visit> visits = new LinkedHashSet<>();
+```
+- Visits cascade-persist/delete with pet
+- `EAGER` loading ensures visits loaded with pet
+- Visits ordered chronologically by date
+
+#### **4. Vet ↔ Specialty (Many-to-Many)**
+```java
+// Vet.java:47-50
+@ManyToMany(fetch = FetchType.EAGER)
+@JoinTable(
+    name = "vet_specialties",
+    joinColumns = @JoinColumn(name = "vet_id"),
+    inverseJoinColumns = @JoinColumn(name = "specialty_id")
+)
+private Set<Specialty> specialties;
+```
+- Junction table `vet_specialties` links vets to specialties
+- `EAGER` loading fetches all specialties immediately
+- Bidirectional capability (Specialty side not mapped)
+
+---
+
+### **Owner Domain Logic**
+
+Owner provides helper methods for pet management:
+
+```java
+// Owner.java:108-145
+public Pet getPet(String name) { ... }
+public Pet getPet(Integer id) { ... }
+public Pet getPet(String name, boolean ignoreNew) { ... }
+public void addPet(Pet pet) { ... }
+
+// Owner.java:164-174
+public void addVisit(Integer petId, Visit visit) {
+    Assert.notNull(petId, "Pet identifier must not be null!");
+    Assert.notNull(visit, "Visit must not be null!");
+    Pet pet = getPet(petId);
+    Assert.notNull(pet, "Invalid Pet identifier!");
+    pet.addVisit(visit);
+}
+```
+
+---
+
+### **Visit Domain Logic**
+
+Visit auto-initializes with current date:
+
+```java
+// Visit.java:48-50
+public Visit() {
+    this.date = LocalDate.now();
+}
+```
+
+---
+
+### **Vet Domain Logic**
+
+Vet provides sorted specialty access:
+
+```java
+// Vet.java:52-73
+protected Set<Specialty> getSpecialtiesInternal() {
+    if (this.specialties == null) {
+        this.specialties = new HashSet<>();
+    }
+    return this.specialties;
+}
+
+@XmlElement
+public List<Specialty> getSpecialties() {
+    return getSpecialtiesInternal().stream()
+        .sorted(Comparator.comparing(NamedEntity::getName))
+        .collect(Collectors.toList());
+}
+
+public void addSpecialty(Specialty specialty) { ... }
+```
+
+---
+
+### **Repository Layer**
+
+#### **OwnerRepository** (extends `JpaRepository<Owner, Integer>`)
+```java
+// OwnerRepository.java:36-62
+Page<Owner> findByLastNameStartingWith(String lastName, Pageable pageable);
+Optional<Owner> findById(Integer id);
+```
+- Query method naming convention: `findByLastNameStartingWith` → auto-generated SQL
+- Pagination support via `Pageable`
+- Inherited CRUD methods: `save()`, `findAll()`, `delete()`, etc.
+
+#### **VetRepository** (extends `Repository<Vet, Integer>`)
+```java
+// VetRepository.java:38-56
+@Transactional(readOnly = true)
+@Cacheable("vets")
+Collection<Vet> findAll() throws DataAccessException;
+
+@Transactional(readOnly = true)
+@Cacheable("vets")
+Page<Vet> findAll(Pageable pageable) throws DataAccessException;
+```
+- **Minimal interface** — only defines `findAll()` methods (no full CRUD)
+- **Caching**: Results cached in "vets" cache (Spring Cache abstraction)
+- **Read-only transactions**: Optimized for query-only operations
+
+#### **PetTypeRepository** (extends `JpaRepository<PetType, Integer>`)
+```java
+// PetTypeRepository.java:7-10
+List<PetType> findAll();
+PetType findByName(String name);
+```
+- Standard CRUD + custom finder by name
+
+---
+
+### **Key Annotations Summary**
+
+| Annotation | Purpose | Usage |
+|-----------|---------|-------|
+| `@Entity` | Marks class as JPA entity | All domain classes |
+| `@MappedSuperclass` | Base class for inheritance (no table) | `BaseEntity`, `NamedEntity` |
+| `@Table(name = "...")` | Maps entity to database table | All concrete entities |
+| `@Id` | Primary key | `BaseEntity.id` |
+| `@GeneratedValue(IDENTITY)` | Auto-increment ID | `BaseEntity` |
+| `@Column` | Maps field to column | Property-level mappings |
+| `@OneToMany` | 1:N relationship | Owner→Pet, Pet→Visit |
+| `@ManyToOne` | N:1 relationship | Pet→PetType |
+| `@ManyToMany` | N:N relationship | Vet↔Specialty |
+| `@JoinColumn` | Foreign key reference | Relationship ownership |
+| `@JoinTable` | Junction table (M2M) | Vet↔Specialty linking |
+| `@CascadeType.ALL` | Propagate operations | Deleting owner deletes pets |
+| `@OrderBy` | Sort collection | Pets by name, Visits by date |
+| `@NotBlank` | Validation constraint | Fields that can't be empty |
+| `@Cacheable` | Spring Cache integration | VetRepository results |
+
+---
+
+### **Database Schema Implicit Design**
+
+From the mappings:
+- **owners** table: inherits from `persons` (single-table inheritance)
+- **pets** table: has `owner_id` FK, `type_id` FK
+- **visits** table: has `pet_id` FK, `visit_date`, `description`
+- **vets** table: inherits from `persons`
+- **types** table: stores PetType data
+- **specialties** table: stores Specialty data
+- **vet_specialties** table: junction table for M2M relationship
+
+This design exemplifies **Spring Data JPA best practices**: clean inheritance hierarchy, declarative relationship management, and repository pattern for data access abstraction.

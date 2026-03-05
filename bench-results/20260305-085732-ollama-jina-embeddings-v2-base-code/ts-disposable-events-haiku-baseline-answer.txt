@@ -1,0 +1,300 @@
+Perfect! I've explored the TypeScript project. Here's a comprehensive breakdown of how Disposable, IDisposable, and EventEmitter work together:
+
+---
+
+## Architecture Overview
+
+The system uses a **resource lifecycle management pattern** where all resources implement `IDisposable` and can be collected for batch cleanup via `DisposableStore`.
+
+### Core Interfaces & Class Relationships
+
+```
+IDisposable (interface)
+    ↑
+    └─── Disposable (abstract class)
+         └─── _store: DisposableStore
+         └─── _register<T>(o: T): T
+         
+Emitter<T>
+    ├─── implements IDisposable
+    ├─── _listeners: UniqueContainer<T> | UniqueContainer<T>[]
+    ├─── event: Event<T>  (getter returns public subscription interface)
+    └─── fire(event: T): void
+
+Event<T> (function type)
+    └─── (listener, thisArgs?, disposables?) => IDisposable
+
+DisposableStore
+    ├─── add<T>(o: T): T
+    ├─── dispose(): void
+    └─── delete(o: IDisposable): void
+```
+
+---
+
+## 1. Core Disposable Pattern
+
+**IDisposable** (`lifecycle.ts:312`) — The fundamental contract:
+```typescript
+interface IDisposable {
+  dispose(): void;
+}
+```
+
+**Disposable** (`lifecycle.ts:526`) — Abstract base class with automatic child management:
+```typescript
+abstract class Disposable implements IDisposable {
+  protected _store = new DisposableStore();
+  
+  protected _register<T extends IDisposable>(o: T): T {
+    this._store.add(o);  // Auto-cleanup when dispose() called
+    return o;
+  }
+  
+  dispose(): void {
+    this._store.dispose();
+  }
+}
+```
+
+**DisposableStore** (`lifecycle.ts:416`) — Manages multiple resources:
+```typescript
+class DisposableStore implements IDisposable {
+  private readonly _toDispose = new Set<IDisposable>();
+  
+  add<T extends IDisposable>(o: T): T {
+    if (this._isDisposed) console.warn('Adding to disposed store');
+    else this._toDispose.add(o);
+    return o;
+  }
+  
+  dispose(): void {
+    for (const item of this._toDispose) item.dispose();
+    this._toDispose.clear();
+  }
+}
+```
+
+---
+
+## 2. Listener Registration & Cleanup
+
+**Listener Storage** (`event.ts:1093-1236`):
+- **Single listener**: `_listeners = UniqueContainer<T>` (optimized case)
+- **Multiple listeners**: `_listeners = UniqueContainer<T>[]` (sparse array)
+- Each listener wrapped in `UniqueContainer` with unique ID
+
+**Registration Flow**:
+```typescript
+const emitter = new Emitter<number>();
+
+// Method 1: Direct subscription (returns IDisposable)
+const subscription = emitter.event((value) => {
+  console.log('Event:', value);
+});
+
+// Method 2: With DisposableStore (automatic cleanup)
+const store = new DisposableStore();
+emitter.event((value) => { /* ... */ }, null, store);
+
+// Method 3: With disposables array
+const disposables: IDisposable[] = [];
+emitter.event((value) => { /* ... */ }, null, disposables);
+
+// Cleanup methods:
+subscription.dispose();           // Method 1
+store.dispose();                  // Method 2 (disposes all)
+dispose(disposables);             // Method 3 (disposes all)
+```
+
+**Listener Removal** (`event.ts:1238-1281`):
+```typescript
+private _removeListener(listener: UniqueContainer<(e: T) => unknown>): void {
+  // Mark as undefined in sparse array (avoids reallocation)
+  this._listeners[index] = undefined;
+  
+  // Compact array if too much empty space (threshold = 2)
+  if (emptyCount > this._listeners.length / 2) {
+    this._listeners = this._listeners.filter(isDefined);
+  }
+  
+  // Update delivery queue if in the middle of event firing
+  if (this._deliveryQueue?.current === this) {
+    this._deliveryQueue.i--;  // Adjust index for removals before cursor
+  }
+}
+```
+
+---
+
+## 3. Event Type System
+
+**Event<T>** (`event.ts:37`) — Function signature for subscriptions:
+```typescript
+interface Event<T> {
+  (listener: (e: T) => unknown, 
+   thisArgs?: any, 
+   disposables?: IDisposable[] | DisposableStore): IDisposable;
+}
+```
+
+**Emitter Options** (`event.ts:858-894`) — Configuration with lifecycle hooks:
+```typescript
+interface EmitterOptions {
+  onWillAddFirstListener?: () => void;   // Before first listener added
+  onDidAddFirstListener?: () => void;    // After first listener added
+  onDidAddListener?: () => void;         // After each listener
+  onWillRemoveListener?: () => void;     // Before listener removed
+  onDidRemoveLastListener?: () => void;  // After last listener removed
+  onListenerError?: (err: Error) => void;
+  leakWarningThreshold?: number;         // Warn if >N listeners
+}
+```
+
+**Specialized Emitters**:
+- `AsyncEmitter<T>` — Supports `waitUntil(promise)` for async coordination
+- `PauseableEmitter<T>` — Pause/resume with event queueing
+- `DebounceEmitter<T>` — Merge rapid successive events
+- `EventMultiplexer<T>` — Combine multiple event sources
+
+---
+
+## 4. Event Firing & Delivery Lifecycle
+
+**Fire Flow** (`event.ts:1315-1334`):
+```typescript
+fire(event: T): void {
+  // Handle re-entrance: finish pending deliveries first
+  if (this._deliveryQueue?.current) {
+    this._deliverQueue(this._deliveryQueue);
+  }
+  
+  if (!this._listeners) {
+    // No listeners, no-op
+  } else if (this._listeners instanceof UniqueContainer) {
+    // Optimized: single listener (common case)
+    this._deliver(this._listeners, event);
+  } else {
+    // Multiple listeners: queue for ordered delivery
+    const dq = this._deliveryQueue!;
+    dq.enqueue(this, event, this._listeners.length);
+    this._deliverQueue(dq);
+  }
+}
+
+private _deliver(container: UniqueContainer<T>, event: T): void {
+  try {
+    container.value.call(thisArg, event);
+  } catch (err) {
+    this._options?.onListenerError?.(err);
+  }
+}
+```
+
+**Key Pattern**: Re-entrance safe — if a listener calls `fire()` again, the outer delivery completes before inner delivery starts.
+
+---
+
+## 5. Lifecycle Management Patterns
+
+### Pattern A: Parent-Child Resource Cleanup
+
+```typescript
+class DatabaseConnection extends Disposable {
+  private _pool: ConnectionPool;
+  
+  connect() {
+    this._pool = this._register(new ConnectionPool());
+    // When this.dispose() called, _store.dispose() also disposes _pool
+  }
+  
+  onError(): Event<Error> {
+    return this._register(new Emitter<Error>()).event;
+  }
+}
+
+// Usage
+const db = new DatabaseConnection();
+db.connect();
+// ... use db ...
+db.dispose();  // Disposes _pool and all emitters automatically
+```
+
+### Pattern B: CancellationToken with Fire-Once Semantics
+
+```typescript
+class MutableToken implements CancellationToken {
+  private _emitter: Emitter<void> | null = null;  // Lazy creation
+  
+  cancel() {
+    if (!this._isCancelled) {
+      this._isCancelled = true;
+      if (this._emitter) {
+        this._emitter.fire(undefined);  // Notify listeners once
+        this.dispose();                  // Then cleanup
+      }
+    }
+  }
+}
+```
+
+### Pattern C: Composite DisposableStore for Batch Cleanup
+
+```typescript
+const store = new DisposableStore();
+
+// Register all resources
+store.add(emitter1.event(listener1));
+store.add(emitter2.event(listener2));
+store.add(timerDisposable);
+
+// ... do work ...
+
+store.dispose();  // Cleanup all at once
+```
+
+---
+
+## Class Relationships Diagram
+
+```
+┌─────────────────────────────────────────────────────┐
+│              IDisposable Contract                   │
+│           dispose(): void                           │
+└────────────────┬────────────────────────────────────┘
+                 ▲
+        ┌────────┴────────┐
+        │                 │
+   ┌────────────┐   ┌──────────────────┐
+   │ Disposable │   │ Emitter<T>       │
+   │ (abstract) │   │ _listeners       │
+   │ _store     │   │ _deliveryQueue   │
+   │ _register()│   │ fire(event: T)   │
+   └────────────┘   │ dispose()        │
+        ▲           └──────────────────┘
+        │                    ▲
+   ┌────┴──────────────┐    │
+   │ DisposableStore   │    │
+   │ _toDispose: Set   │    │
+   │ add()             │    └─ has Event<T>
+   │ dispose()         │       (subscription function)
+   └───────────────────┘
+```
+
+---
+
+## Summary: Complete Lifecycle
+
+1. **Creation**: `new Emitter<T>()` or `new Disposable()`
+2. **Registration**: 
+   - Listeners subscribe via `emitter.event(callback, thisArgs, disposables?)`
+   - Returns `IDisposable` subscription handle
+3. **Event Firing**:
+   - `emitter.fire(value)` notifies all listeners in order
+   - Re-entrance safe via delivery queue
+   - Errors wrapped per-listener via `onListenerError`
+4. **Cleanup**:
+   - Individual: `subscription.dispose()`
+   - Batch: `store.dispose()` (disposes all children)
+   - Cascade: Parent `dispose()` → calls `_store.dispose()` → disposes all children
+5. **Safety**: Idempotent (multiple dispose() calls safe), warns on listener leaks

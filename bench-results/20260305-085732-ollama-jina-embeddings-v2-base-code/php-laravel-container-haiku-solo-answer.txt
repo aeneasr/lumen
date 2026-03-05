@@ -1,0 +1,377 @@
+Based on the Laravel codebase in the testdata fixtures, here's a comprehensive explanation of how the service container resolves dependencies:
+
+## Core Architecture
+
+The Laravel service container uses a two-level binding system:
+- **Bindings** (`$bindings[]`): Map abstractions to concrete implementations
+- **Instances** (`$instances[]`): Cache resolved singleton instances
+- **Contextual Bindings** (`$contextual[]`): Context-specific overrides
+
+## 1. Binding — Registering Services
+
+Container:278-308 (Container.php:bind):
+```php
+public function bind($abstract, $concrete = null, $shared = false)
+{
+    $this->dropStaleInstances($abstract);
+    
+    if (is_null($concrete)) {
+        $concrete = $abstract;  // Abstract IS the concrete class
+    }
+    
+    if (! $concrete instanceof Closure) {
+        // Wrap string class names in closures for lazy instantiation
+        $concrete = $this->getClosure($abstract, $concrete);
+    }
+    
+    $this->bindings[$abstract] = ['concrete' => $concrete, 'shared' => $shared];
+    
+    if ($this->resolved($abstract)) {
+        $this->rebound($abstract);  // Fire callbacks if already resolved
+    }
+}
+```
+
+**Key Variants:**
+
+- **Singleton** (Container:415-418): `bind($abstract, $concrete, true)` — same instance every time
+- **Conditional** (Container:401-406): `bindIf()` — only bind if not already bound
+- **Instance** (Container:497-515): `instance($abstract, $obj)` — directly register an object
+
+## 2. Concrete Resolution — getClosure & getConcrete
+
+Container:317-328 (Container.php:getClosure):
+```php
+protected function getClosure($abstract, $concrete)
+{
+    return function ($container, $parameters = []) use ($abstract, $concrete) {
+        if ($abstract == $concrete) {
+            return $container->build($concrete);  // Concrete type, build directly
+        }
+        
+        return $container->resolve(
+            $concrete, $parameters, $raiseEvents = false
+        );  // Resolve the concrete binding
+    };
+}
+```
+
+**Resolution Flow:**
+
+When you call `$container->make('Logger')`:
+1. Check `$bindings['Logger']` for concrete mapping
+2. If exists, get closure; otherwise assume abstract IS concrete
+3. Execute closure: either `build()` directly or recursively `resolve()`
+
+## 3. Contextual Binding — Dynamic Dependencies
+
+**Definition** (ContextualBindingBuilder.php:8-53):
+```php
+class ContextualBindingBuilder {
+    protected $concrete;  // The requesting class
+    protected $needs;      // The abstract it needs
+    
+    public function needs(string $abstract): self {
+        $this->needs = $abstract;
+        return $this;
+    }
+    
+    public function give($implementation): void {
+        foreach ($this->normalizeConcrete() as $concrete) {
+            $this->container->addContextualBinding(
+                $concrete,      // Requesting class
+                $this->needs,   // Abstract requested
+                $implementation // What to inject
+            );
+        }
+    }
+}
+```
+
+**Usage:**
+```php
+// When LogProcessor needs a Logger, inject FileLogger (not ConsoleLogger)
+$container->when(LogProcessor::class)
+          ->needs(Logger::class)
+          ->give(FileLogger::class);
+
+// Or with a closure
+$container->when(LogProcessor::class)
+          ->needs(CacheDriver::class)
+          ->give(fn($container) => new RedisCache(...));
+```
+
+**Storage** (Container:388):
+```php
+public function addContextualBinding($concrete, $abstract, $implementation)
+{
+    $this->contextual[$concrete][$abstract] = $implementation;
+}
+```
+
+**Lookup** (Container:889-907):
+```php
+protected function getContextualConcrete($abstract)
+{
+    // Check contextual bindings for the current class being built
+    if (! is_null($binding = $this->findInContextualBindings($abstract))) {
+        return $binding;  // Found class-specific override
+    }
+    
+    // Check aliases
+    if (empty($this->abstractAliases[$abstract])) {
+        return;
+    }
+    
+    foreach ($this->abstractAliases[$abstract] as $alias) {
+        if (! is_null($binding = $this->findInContextualBindings($alias))) {
+            return $binding;
+        }
+    }
+}
+
+protected function findInContextualBindings($abstract)
+{
+    // end($this->buildStack) = current class being built
+    return $this->contextual[end($this->buildStack)][$abstract] ?? null;
+}
+```
+
+## 4. Automatic Injection — Building Concrete Classes
+
+**Main Resolution** (Container:800-863):
+```php
+protected function resolve($abstract, $parameters = [], $raiseEvents = true)
+{
+    $abstract = $this->getAlias($abstract);
+    
+    $this->fireBeforeResolvingCallbacks($abstract, $parameters);
+    
+    // Check contextual bindings for this request
+    $concrete = $this->getContextualConcrete($abstract);
+    
+    // Return cached singleton if available and no special context
+    if (isset($this->instances[$abstract]) && ! $needsContextualBuild) {
+        return $this->instances[$abstract];
+    }
+    
+    $this->with[] = $parameters;  // Parameter overrides stack
+    
+    if (is_null($concrete)) {
+        $concrete = $this->getConcrete($abstract);  // Lookup binding
+    }
+    
+    // Build it (either Closure or ReflectionClass instantiation)
+    $object = $this->isBuildable($concrete, $abstract)
+        ? $this->build($concrete)
+        : $this->make($concrete);
+    
+    // Cache if singleton
+    if ($this->isShared($abstract)) {
+        $this->instances[$abstract] = $object;
+    }
+    
+    return $object;
+}
+```
+
+**Building with Reflection** (Container:943-1008):
+```php
+public function build($concrete)
+{
+    // If Closure, execute and get result
+    if ($concrete instanceof Closure) {
+        $this->buildStack[] = spl_object_hash($concrete);
+        try {
+            return $concrete($this, $this->getLastParameterOverride());
+        } finally {
+            array_pop($this->buildStack);
+        }
+    }
+    
+    // Reflect on the class
+    $reflector = new ReflectionClass($concrete);
+    
+    if (! $reflector->isInstantiable()) {
+        return $this->notInstantiable($concrete);
+    }
+    
+    $this->buildStack[] = $concrete;  // Track for contextual bindings
+    
+    $constructor = $reflector->getConstructor();
+    
+    // No constructor = no dependencies
+    if (is_null($constructor)) {
+        array_pop($this->buildStack);
+        return new $concrete;
+    }
+    
+    // Get constructor parameters
+    $dependencies = $constructor->getParameters();
+    
+    // Recursively resolve each dependency
+    try {
+        $instances = $this->resolveDependencies($dependencies);
+    } catch (BindingResolutionException $e) {
+        array_pop($this->buildStack);
+        throw $e;
+    }
+    
+    array_pop($this->buildStack);
+    
+    // Instantiate with resolved dependencies
+    return $reflector->newInstanceArgs($instances);
+}
+```
+
+**Dependency Resolution** (Container:1018-1055):
+```php
+protected function resolveDependencies(array $dependencies)
+{
+    $results = [];
+    
+    foreach ($dependencies as $dependency) {
+        // Parameter overrides take precedence
+        if ($this->hasParameterOverride($dependency)) {
+            $results[] = $this->getParameterOverride($dependency);
+            continue;
+        }
+        
+        // Check for [Attribute] directives
+        $result = null;
+        if (! is_null($attribute = Util::getContextualAttributeFromDependency($dependency))) {
+            $result = $this->resolveFromAttribute($attribute);
+        }
+        
+        // Get the class name from type hint
+        $result ??= is_null(Util::getParameterClassName($dependency))
+            ? $this->resolvePrimitive($dependency)    // Strings, scalars → error
+            : $this->resolveClass($dependency);       // Recursive resolve
+        
+        if ($dependency->isVariadic()) {
+            $results = array_merge($results, $result);
+        } else {
+            $results[] = $result;
+        }
+    }
+    
+    return $results;
+}
+```
+
+## 5. Service Providers — Registering Bindings
+
+**ServiceProvider Abstract Base** (ServiceProvider.php:7-59):
+```php
+abstract class ServiceProvider
+{
+    protected $app;  // Container reference
+    protected $bootingCallbacks = [];
+    protected $bootedCallbacks = [];
+    
+    public function __construct(Application $app)
+    {
+        $this->app = $app;
+    }
+    
+    // Called during registration phase
+    abstract public function register(): void;
+    
+    // Called after all providers registered
+    public function boot(): void { }
+    
+    // Register callbacks before boot
+    public function booting(callable $callback): void
+    {
+        $this->bootingCallbacks[] = $callback;
+    }
+    
+    // Register callbacks after boot
+    public function booted(callable $callback): void
+    {
+        $this->bootedCallbacks[] = $callback;
+    }
+    
+    // Execute registered callbacks
+    public function callBootingCallbacks(): void
+    {
+        foreach ($this->bootingCallbacks as $callback) {
+            $this->app->call($callback);  // Container invokes with dependency injection
+        }
+    }
+    
+    public function callBootedCallbacks(): void
+    {
+        foreach ($this->bootedCallbacks as $callback) {
+            $this->app->call($callback);  // Same here
+        }
+    }
+    
+    // Hint what services this provider registers (for lazy loading)
+    public function provides(): array
+    {
+        return [];
+    }
+    
+    public function isDeferred(): bool
+    {
+        return false;
+    }
+}
+```
+
+**Typical Service Provider Implementation:**
+```php
+class CacheServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        // Bind cache manager singleton
+        $this->app->singleton('cache', function ($app) {
+            return new CacheManager($app);
+        });
+        
+        // Contextual binding for specific classes
+        $this->app->when(UserRepository::class)
+                  ->needs(CacheStore::class)
+                  ->give(RedisStore::class);
+    }
+    
+    public function boot(): void
+    {
+        // After all providers registered, do bootstrapping
+        $cache = $this->app->make('cache');
+        $cache->initialize();
+    }
+}
+```
+
+## Key Method Signatures
+
+| Class | Method | Signature |
+|-------|--------|-----------|
+| **Container** | bind | `bind($abstract, $concrete = null, $shared = false)` |
+| **Container** | singleton | `singleton($abstract, $concrete = null)` |
+| **Container** | instance | `instance($abstract, $instance)` |
+| **Container** | make | `make($abstract, array $parameters = [])` |
+| **Container** | when | `when($concrete): ContextualBindingBuilder` |
+| **Container** | build | `build($concrete)` |
+| **Container** | resolve | `resolve($abstract, $parameters = [], $raiseEvents = true)` |
+| **ContextualBindingBuilder** | needs | `needs(string $abstract): self` |
+| **ContextualBindingBuilder** | give | `give($implementation): void` |
+| **ContextualBindingBuilder** | giveTagged | `giveTagged(string $tag): void` |
+| **ContextualBindingBuilder** | giveConfig | `giveConfig(string $key, $default = null): void` |
+| **ServiceProvider** | register | `abstract register(): void` |
+| **ServiceProvider** | boot | `boot(): void` |
+
+## Resolution Flow Summary
+
+1. **Request** → `$container->make(SomeClass::class)`
+2. **Check Singletons** → Return if cached + no contextual override
+3. **Get Contextual Concrete** → Look up context-specific binding
+4. **Get Binding** → Look up abstract→concrete mapping
+5. **Build** → Use Reflection to inspect constructor
+6. **Resolve Dependencies** → Recursively resolve each parameter
+7. **Contextual Check** → For each param, check if current class has overrides
+8. **Instantiate** → Create with resolved dependencies
+9. **Cache** → Store instance if singleton

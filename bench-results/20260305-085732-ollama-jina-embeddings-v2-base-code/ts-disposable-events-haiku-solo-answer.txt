@@ -1,0 +1,210 @@
+Based on the TypeScript code in the fixture, here's a detailed explanation of how **Disposable/IDisposable** works with the **EventEmitter** system:
+
+## Core Interfaces & Types
+
+### IDisposable Interface
+**lifecycle.ts:312**
+```typescript
+export interface IDisposable {
+	dispose(): void;
+}
+```
+
+The base contract—any object that manages resources must implement a `dispose()` method for cleanup.
+
+### Event Type Definition
+**event.ts:37**
+```typescript
+export interface Event<T> {
+	(listener: (e: T) => unknown, thisArgs?: any, disposables?: IDisposable[] | DisposableStore): IDisposable;
+}
+```
+
+An `Event<T>` is a **function** that:
+- Takes a **callback** `(e: T) => unknown`
+- Optionally binds `thisArgs` context
+- Optionally collects disposables into an array or store
+- **Returns an IDisposable** for cleanup
+
+## Listener Registration & Lifecycle
+
+### Emitter Class
+**event.ts:1093**
+
+The `Emitter<T>` class implements the emit-subscribe pattern with sophisticated lifecycle management:
+
+```typescript
+export class Emitter<T> {
+	private _listeners?: ListenerOrListeners<T>;  // Single or array of listeners
+	private _size = 0;                             // Count for leak detection
+	private _disposed?: true;
+	private _deliveryQueue?: EventDeliveryQueuePrivate;
+	
+	// Lifecycle hooks
+	constructor(options?: EmitterOptions) { ... }
+	dispose() { ... }
+	get event(): Event<T> { ... }
+	fire(event: T): void { ... }
+}
+```
+
+### Registration Flow
+**event.ts:1174–1230**
+
+When you call `emitter.event(callback)`:
+
+1. **Callback wrapping**: Wrapped in a `UniqueContainer` for identity tracking
+2. **First listener hooks**: Fires `onWillAddFirstListener` → `onDidAddFirstListener`
+3. **Storage optimization**: Single listener stored directly (not array) for performance
+4. **Return disposable**: `toDisposable(() => { this._removeListener(contained) })`
+
+```typescript
+const result = toDisposable(() => {
+	removeMonitor?.();
+	this._removeListener(contained);
+});
+addToDisposables(result, disposables);  // Auto-register into provided store
+return result;
+```
+
+### Cleanup on Listener Removal
+**event.ts:1238–1275**
+
+When a disposable is called or the listener is removed:
+- Fires `onWillRemoveListener`
+- Removes listener from internal storage
+- If last listener, fires `onDidRemoveLastListener` 
+- Clears references to prevent memory leaks
+
+```typescript
+private _removeListener(listener: ListenerContainer<T>) {
+	this._options?.onWillRemoveListener?.(this);
+	
+	if (this._size === 1) {
+		this._listeners = undefined;
+		this._options?.onDidRemoveLastListener?.(this);
+		this._size = 0;
+		return;
+	}
+	// Remove from array, handle sparse arrays...
+}
+```
+
+## Event Firing & Delivery
+
+### Fire Method
+**event.ts:1315**
+
+```typescript
+fire(event: T): void {
+	if (this._deliveryQueue?.current) {
+		this._deliverQueue(this._deliveryQueue);
+	}
+	
+	if (!this._listeners) {
+		// no-op
+	} else if (this._listeners instanceof UniqueContainer) {
+		this._deliver(this._listeners, event);  // Single listener
+	} else {
+		const dq = this._deliveryQueue!;
+		dq.enqueue(this, event, this._listeners.length);  // Multiple listeners
+		this._deliverQueue(dq);
+	}
+}
+```
+
+### Event Delivery
+**event.ts:1283**
+
+```typescript
+private _deliver(listener: UniqueContainer<(value: T) => void>, value: T) {
+	try {
+		listener.value(value);  // Invoke callback
+	} catch (e) {
+		const errorHandler = this._options?.onListenerError || onUnexpectedError;
+		errorHandler(e);  // Isolated error handling
+	}
+}
+```
+
+## Lifecycle Management Pattern
+
+### Disposable Store Integration
+**lifecycle.ts:416**
+
+```typescript
+export class DisposableStore implements IDisposable {
+	private _toDispose: IDisposable[] = [];
+	private _isDisposed = false;
+
+	add<T extends IDisposable>(o: T): T {
+		if (this._isDisposed) {
+			o.dispose();
+		} else {
+			this._toDispose.push(o);
+		}
+		return o;
+	}
+
+	dispose(): void {
+		for (const disposable of this._toDispose) {
+			disposable.dispose();
+		}
+		this._toDispose = [];
+	}
+}
+```
+
+### Complete Lifecycle Example: Relay
+**event.ts:1782**
+
+The `Relay` class shows the complete pattern:
+
+```typescript
+export class Relay<T> implements IDisposable {
+	private listening = false;
+	private inputEvent: Event<T> = Event.None;
+	private inputEventListener: IDisposable = Disposable.None;
+
+	private readonly emitter = new Emitter<T>({
+		onDidAddFirstListener: () => {
+			// Lazy connect when first external listener added
+			this.listening = true;
+			this.inputEventListener = this.inputEvent(
+				this.emitter.fire,  // Forward input → output
+				this.emitter
+			);
+		},
+		onDidRemoveLastListener: () => {
+			// Clean up when last listener removed
+			this.listening = false;
+			this.inputEventListener.dispose();
+		}
+	});
+
+	set input(event: Event<T>) {
+		this.inputEvent = event;
+		if (this.listening) {
+			// Reconnect to new input
+			this.inputEventListener.dispose();
+			this.inputEventListener = event(this.emitter.fire, this.emitter);
+		}
+	}
+
+	dispose() {
+		this.inputEventListener.dispose();
+		this.emitter.dispose();
+	}
+}
+```
+
+## Key Design Insights
+
+1. **Lazy subscription**: Listeners don't activate until the first subscriber (via `onWillAddFirstListener`)
+2. **Memory efficiency**: Single listeners stored as values, not arrays
+3. **Cleanup on emit**: `dispose()` on Emitter clears all listeners and prevents new subscriptions
+4. **Error isolation**: Listener errors don't crash other listeners or the emitter
+5. **Nested disposal**: Disposables can be collected in stores that dispose them all at once
+6. **Automatic registration**: Events can auto-register returned disposables into provided stores
+
+The pattern ensures clean resource management and prevents memory leaks by coupling listener lifecycle to disposal.

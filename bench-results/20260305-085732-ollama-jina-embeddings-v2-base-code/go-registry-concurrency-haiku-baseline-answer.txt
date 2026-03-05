@@ -1,0 +1,394 @@
+Now let me create a comprehensive guide with all the relevant code:
+
+## TSDB Compaction End-to-End Overview
+
+TSDB compaction is a **multi-level hierarchical process** that progressively merges time series blocks from the in-memory head down to disk, following a **leveled compaction strategy**. Here's how it works:
+
+---
+
+## 1. **Compactor Interface** (compact.go:52-77)
+
+The core abstraction that any compaction strategy must implement:
+
+```go
+type Compactor interface {
+	// Plan returns directories that can be compacted concurrently
+	Plan(dir string) ([]string, error)
+
+	// Write persists blocks into a directory
+	// Returns ULID of new block(s), empty if no samples written
+	Write(dest string, b BlockReader, mint, maxt int64, base *BlockMeta) ([]ulid.ULID, error)
+
+	// Compact runs compaction on provided directories
+	// Can reuse already-open blocks to avoid memory duplication
+	Compact(dest string, dirs []string, open []*Block) ([]ulid.ULID, error)
+}
+```
+
+---
+
+## 2. **LeveledCompactor Implementation** (compact.go:79-241)
+
+The production compactor that implements leveled compaction:
+
+```go
+type LeveledCompactor struct {
+	metrics                     *CompactorMetrics
+	logger                      *slog.Logger
+	ranges                      []int64  // Time ranges per level: [2h, 6h, 18h, ...]
+	chunkPool                   chunkenc.Pool
+	ctx                         context.Context
+	maxBlockChunkSegmentSize    int64
+	mergeFunc                   storage.VerticalChunkSeriesMergeFunc
+	blockExcludeFunc            BlockExcludeFilterFunc
+	postingsEncoder             index.PostingsEncoder
+	postingsDecoderFactory      PostingsDecoderFactory
+	enableOverlappingCompaction bool  // For vertical compaction
+}
+
+// Constructor with defaults
+func NewLeveledCompactor(ctx context.Context, r prometheus.Registerer, l *slog.Logger, 
+	ranges []int64, pool chunkenc.Pool, mergeFunc storage.VerticalChunkSeriesMergeFunc) 
+	(*LeveledCompactor, error)
+```
+
+### Key Methods:
+
+| Method | Purpose | Location |
+|--------|---------|----------|
+| `Plan(dir)` | Determines which blocks to compact | compact.go:249 |
+| `Compact(dest, dirs, open)` | Merges blocks into new block | compact.go:485 |
+| `Write(dest, b, mint, maxt, base)` | Writes BlockReader to disk | compact.go:586 |
+| `selectDirs(ds)` | Selects non-overlapping blocks by range | compact.go:332 |
+| `selectOverlappingDirs(ds)` | Selects overlapping blocks (vertical) | compact.go:371 |
+| `splitByRange(ds, tr)` | Groups blocks by time range | compact.go:400 |
+| `write(dest, meta, populator, blocks)` | Internal write implementation | compact.go:658 |
+
+---
+
+## 3. **DB Compaction Triggers** (db.go:283-344)
+
+The database orchestrates compaction via these fields:
+
+```go
+type DB struct {
+	// ... other fields ...
+	
+	compactor      Compactor              // The compactor instance
+	
+	compactc       chan struct{}           // Signal to trigger compaction
+	
+	cmtx           sync.Mutex              // Ensures compactions & deletions don't run simultaneously
+	autoCompactMtx sync.Mutex              // Protects autoCompact flag
+	autoCompact    bool                    // Whether auto-compaction is enabled
+	
+	compactCancel  context.CancelFunc      // Cancel running compaction on shutdown
+	
+	timeWhenCompactionDelayStarted time.Time  // For delayed compaction (rate limiting)
+	lastHeadCompactionTime         time.Time  // Track compaction frequency
+	
+	head           *Head                   // In-memory write-ahead log buffer
+}
+```
+
+---
+
+## 4. **Compaction Flow in DB.Compact()** (db.go:1414)
+
+The main entry point orchestrates the entire process:
+
+```go
+// Compact data if possible. After successful compaction blocks are reloaded
+// which will also delete the blocks that fall out of the retention window.
+func (db *DB) Compact(ctx context.Context) (returnErr error) {
+	db.cmtx.Lock()
+	defer db.cmtx.Unlock()
+	defer func() {
+		if returnErr != nil && !errors.Is(returnErr, context.Canceled) {
+			db.metrics.compactionsFailed.Inc()
+		}
+	}()
+
+	// 1. COMPACT HEAD BLOCKS (in-memory → disk)
+	for {
+		if !db.head.compactable() {
+			// Head has insufficient data yet
+			if !db.timeWhenCompactionDelayStarted.IsZero() {
+				db.timeWhenCompactionDelayStarted = time.Time{}  // Reset delay
+			}
+			break
+		}
+
+		// Enforce compaction delay (rate limiting)
+		if db.timeWhenCompactionDelayStarted.IsZero() {
+			db.timeWhenCompactionDelayStarted = time.Now()
+		}
+		if db.waitingForCompactionDelay() {
+			break  // Wait before compacting again
+		}
+
+		// Create bounded view of head
+		mint := db.head.MinTime()
+		maxt := rangeForTimestamp(mint, db.head.chunkRange.Load())
+		rh := NewRangeHeadWithIsolationDisabled(db.head, mint, maxt-1)
+
+		// Wait for in-flight appends to finish
+		db.head.WaitForAppendersOverlapping(rh.MaxTime())
+
+		// Compact the head range into a block
+		if err := db.compactHead(rh); err != nil {
+			return fmt.Errorf("compact head: %w", err)
+		}
+		lastBlockMaxt = maxt
+	}
+
+	// 2. TRUNCATE WAL (clear old write-ahead logs)
+	if err := db.head.truncateWAL(lastBlockMaxt); err != nil {
+		return fmt.Errorf("WAL truncation: %w", err)
+	}
+
+	// 3. COMPACT OUT-OF-ORDER HEAD (if any)
+	if lastBlockMaxt != math.MinInt64 {
+		if err := db.compactOOOHead(ctx); err != nil {
+			return fmt.Errorf("compact ooo head: %w", err)
+		}
+	}
+
+	// 4. COMPACT ON-DISK BLOCKS (leveled merging)
+	return db.compactBlocks()
+}
+```
+
+---
+
+## 5. **Block Metadata for Tracking Compaction** (block.go)
+
+Tracks compaction history in block metadata:
+
+```go
+type BlockMeta struct {
+	ULID       string              `json:"ulid"`
+	MinTime    int64               `json:"minTime"`
+	MaxTime    int64               `json:"maxTime"`
+	Stats      BlockStats          `json:"stats"`
+	Compaction BlockMetaCompaction `json:"compaction"`
+}
+
+// Compaction metadata
+type BlockMetaCompaction struct {
+	Level   int         `json:"level"`           // Compaction level (0, 1, 2, ...)
+	Sources []string    `json:"sources"`         // Original source ULIDs
+	Parents []BlockDesc `json:"parents"`         // Immediate parent blocks
+}
+
+type BlockDesc struct {
+	ULID    string
+	MinTime int64
+	MaxTime int64
+}
+
+// Helper to merge metas from source blocks
+func CompactBlockMetas(uid ulid.ULID, blocks ...*BlockMeta) *BlockMeta {
+	res := &BlockMeta{ULID: uid}
+	
+	// Track original sources and parents
+	for _, b := range blocks {
+		if b.Compaction.Level > res.Compaction.Level {
+			res.Compaction.Level = b.Compaction.Level
+		}
+		// Merge sources
+		for _, s := range b.Compaction.Sources {
+			sources[s] = struct{}{}
+		}
+		// Track parents
+		res.Compaction.Parents = append(res.Compaction.Parents, BlockDesc{
+			ULID: b.ULID, MinTime: b.MinTime, MaxTime: b.MaxTime,
+		})
+	}
+	res.Compaction.Level++  // Increment level after merging
+	
+	return res
+}
+```
+
+---
+
+## 6. **Leveled Compaction Strategy**
+
+### Planning Algorithm (compact.go:249)
+
+```go
+func (c *LeveledCompactor) Plan(dir string) ([]string, error) {
+	// Read all block metadata from disk
+	dirs, err := blockDirs(dir)
+	var dms []dirMeta
+	
+	for _, dir := range dirs {
+		meta, _, err := readMetaFile(dir)
+		// Skip excluded blocks
+		if c.blockExcludeFunc != nil && c.blockExcludeFunc(meta) {
+			break
+		}
+		dms = append(dms, dirMeta{dir, meta})
+	}
+	
+	return c.plan(dms)
+}
+
+func (c *LeveledCompactor) plan(dms []dirMeta) ([]string, error) {
+	// Sort by MinTime
+	slices.SortFunc(dms, ...)
+	
+	// Try overlapping blocks first (vertical compaction)
+	res := c.selectOverlappingDirs(dms)
+	if len(res) > 0 {
+		return res, nil
+	}
+	
+	// Normal leveled compaction: exclude newest block
+	dms = dms[:len(dms)-1]
+	
+	// For each configured range, select blocks that fit
+	for _, dm := range c.selectDirs(dms) {
+		res = append(res, dm.dir)
+	}
+	
+	// Check for blocks with >5% tombstones
+	// ...
+	
+	return res, nil
+}
+```
+
+### Block Selection (compact.go:332)
+
+Groups blocks by time range, picks those filling a range boundary:
+
+```go
+func (c *LeveledCompactor) selectDirs(ds []dirMeta) []dirMeta {
+	// For each configured range level (2h, 6h, 18h, ...)
+	for _, iv := range c.ranges[1:] {
+		// Split blocks into groups aligned to that range
+		parts := splitByRange(ds, iv)
+		
+		for _, p := range parts {
+			mint := p[0].meta.MinTime
+			maxt := p[len(p)-1].meta.MaxTime
+			
+			// If this range fills its boundary OR is before newest block, compact it
+			if (maxt-mint == iv || maxt <= highTime) && len(p) > 1 {
+				return p  // Return first compactable group
+			}
+		}
+	}
+	return nil
+}
+```
+
+### Vertical Compaction (compact.go:371)
+
+For overlapping blocks:
+
+```go
+func (c *LeveledCompactor) selectOverlappingDirs(ds []dirMeta) []string {
+	if !c.enableOverlappingCompaction {
+		return nil
+	}
+	
+	var overlappingDirs []string
+	globalMaxt := ds[0].meta.MaxTime
+	
+	for i, d := range ds[1:] {
+		// If block starts before max of previous blocks, it overlaps
+		if d.meta.MinTime < globalMaxt {
+			overlappingDirs = append(overlappingDirs, d.dir)
+		}
+		if d.meta.MaxTime > globalMaxt {
+			globalMaxt = d.meta.MaxTime
+		}
+	}
+	return overlappingDirs
+}
+```
+
+---
+
+## 7. **Block Merging/Writing** (compact.go:658)
+
+The actual compaction work:
+
+```go
+func (c *LeveledCompactor) write(dest string, meta *BlockMeta, 
+	blockPopulator BlockPopulator, blocks ...BlockReader) error {
+	
+	dir := filepath.Join(dest, meta.ULID.String())
+	tmp := dir + tmpForCreationBlockDirSuffix
+	defer os.RemoveAll(tmp)  // Clean up on error
+	
+	// 1. Create chunk writer for new block
+	chunkw, err := chunks.NewWriter(chunkDir(tmp), ...)
+	
+	// 2. Create index writer
+	indexw, err := index.NewWriterWithEncoder(...)
+	
+	// 3. Populate block (merge all input blocks)
+	if err := blockPopulator.PopulateBlock(
+		c.ctx, c.metrics, c.logger, c.chunkPool, c.mergeFunc,
+		blocks, meta, indexw, chunkw, AllSortedPostings); err != nil {
+		return fmt.Errorf("populate block: %w", err)
+	}
+	
+	// 4. Write metadata
+	if _, err = writeMetaFile(c.logger, tmp, meta); err != nil {
+		return fmt.Errorf("write meta: %w", err)
+	}
+	
+	// 5. Write tombstones
+	if _, err := tombstones.WriteFile(c.logger, tmp, tombstones.NewMemTombstones()); err != nil {
+		return fmt.Errorf("write tombstones: %w", err)
+	}
+	
+	// 6. Fsync directory, close handles
+	// 7. Atomically move from tmp to final location
+	if err := fileutil.Replace(tmp, dir); err != nil {
+		return fmt.Errorf("rename block: %w", err)
+	}
+	
+	return nil
+}
+```
+
+---
+
+## 8. **Compaction Metrics** (compact.go:95)
+
+Observability into the compaction process:
+
+```go
+type CompactorMetrics struct {
+	Ran               prometheus.Counter    // Total compactions executed
+	PopulatingBlocks  prometheus.Gauge      // Currently writing blocks
+	OverlappingBlocks prometheus.Counter    // Vertical compactions done
+	Duration          prometheus.Histogram  // Duration of runs
+	ChunkSize         prometheus.Histogram  // Final chunk sizes
+	ChunkSamples      prometheus.Histogram  // Samples per chunk
+	ChunkRange        prometheus.Histogram  // Time range of chunks
+}
+```
+
+---
+
+## **Summary: The Full Compaction Lifecycle**
+
+1. **DB.Compact()** is called (triggered by timer or manually)
+2. **Head compaction** → memory → disk block (via `compactHead()`)
+3. **WAL truncation** → cleanup old write-ahead logs
+4. **OOO compaction** → merge out-of-order data
+5. **Plan()** → analyzes on-disk blocks, decides what to merge
+6. **selectDirs()** or **selectOverlappingDirs()** → chooses blocks
+7. **Compact()** → merges selected blocks
+8. **PopulateBlock()** → merges indices, chunks, tombstones
+9. **write()** → atomically moves from tmp to final location
+10. **Metadata updated** → tracks level, sources, parents for future compactions
+
+**Leveled strategy**: Small recent blocks (level 0) → progressively merge into larger ranges (level 1, 2, ...) based on `ranges []int64` config.

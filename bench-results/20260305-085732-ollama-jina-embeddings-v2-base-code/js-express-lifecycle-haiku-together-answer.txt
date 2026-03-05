@@ -1,0 +1,240 @@
+Based on my analysis of the Express source code in your testdata, here's how Express handles the full request/response lifecycle:
+
+## Request/Response Lifecycle Entry Point
+
+```javascript
+// express-express.js:36-56
+function createApplication() {
+  var app = function(req, res, next) {
+    app.handle(req, res, next);  // Delegate to handle method
+  };
+  
+  mixin(app, EventEmitter.prototype, false);
+  mixin(app, proto, false);  // Inherit application prototype
+  
+  // Extend request/response prototypes with Express enhancements
+  app.request = Object.create(req, {
+    app: { configurable: true, enumerable: true, writable: true, value: app }
+  })
+  app.response = Object.create(res, {
+    app: { configurable: true, enumerable: true, writable: true, value: app }
+  })
+  
+  app.init();
+  return app;
+}
+```
+
+## The Handle Flow: Processing Middleware Stack
+
+```javascript
+// express-application.js:152-178
+app.handle = function handle(req, res, callback) {
+  // Final handler (error catching fallback)
+  var done = callback || finalhandler(req, res, {
+    env: this.get('env'),
+    onerror: logerror.bind(this)
+  });
+
+  if (this.enabled('x-powered-by')) {
+    res.setHeader('X-Powered-By', 'Express');
+  }
+
+  // Establish circular refs between req/res
+  req.res = res;
+  res.req = req;
+
+  // Set Express prototypes on request/response objects
+  Object.setPrototypeOf(req, this.request);
+  Object.setPrototypeOf(res, this.response);
+
+  // Setup response locals
+  if (!res.locals) {
+    res.locals = Object.create(null);
+  }
+
+  // Pass to router's middleware chain
+  this.router.handle(req, res, done);
+};
+```
+
+## Middleware Chaining via `app.use()`
+
+The middleware stack is defined with `app.use()`:
+
+```javascript
+// express-application.js:190-244
+app.use = function use(fn) {
+  var offset = 0;
+  var path = '/';
+
+  // Parse arguments: app.use([path], ...middleware)
+  if (typeof fn !== 'function') {
+    var arg = fn;
+    while (Array.isArray(arg) && arg.length !== 0) {
+      arg = arg[0];
+    }
+    if (typeof arg !== 'function') {
+      offset = 1;
+      path = fn;  // First argument is the mount path
+    }
+  }
+
+  var fns = flatten.call(slice.call(arguments, offset), Infinity);
+
+  if (fns.length === 0) {
+    throw new TypeError('app.use() requires a middleware function');
+  }
+
+  var router = this.router;
+
+  fns.forEach(function (fn) {
+    // Handle mounted sub-applications
+    if (!fn || !fn.handle || !fn.set) {
+      return router.use(path, fn);  // Middleware registered on router
+    }
+
+    debug('.use app under %s', path);
+    fn.mountpath = path;
+    fn.parent = this;
+
+    // Middleware wrapper for sub-app
+    router.use(path, function mounted_app(req, res, next) {
+      var orig = req.app;
+      fn.handle(req, res, function (err) {
+        // Restore parent app's prototypes
+        Object.setPrototypeOf(req, orig.request);
+        Object.setPrototypeOf(res, orig.response);
+        next(err);  // Pass through to next middleware
+      });
+    });
+
+    fn.emit('mount', this);
+  }, this);
+
+  return this;
+};
+```
+
+## Route Mounting and HTTP Method Handlers
+
+```javascript
+// express-application.js:256-258
+app.route = function route(path) {
+  return this.router.route(path);  // Returns a Route object
+};
+
+// Dynamic HTTP verb delegation (lines 471-482)
+methods.forEach(function (method) {
+  app[method] = function (path) {
+    if (method === 'get' && arguments.length === 1) {
+      return this.set(path);  // Setting, not routing
+    }
+
+    var route = this.route(path);
+    route[method].apply(route, slice.call(arguments, 1));
+    return this;
+  };
+});
+
+// Example: app.post('/api/users', middleware1, middleware2, handler)
+```
+
+Routes are **isolated middleware stacks** for specific paths. Each route has its own layer system:
+- `app.post('/path', mw1, mw2, handler)` chains mw1 → mw2 → handler on that route
+- Only executed when path and HTTP method match
+
+## Error-Handling Middleware (4-Parameter Pattern)
+
+Error-handling middleware is identified by **4 parameters** instead of 3:
+
+```javascript
+// REGULAR MIDDLEWARE: 3 parameters
+app.use((req, res, next) => {
+  console.log('Incoming request');
+  next();  // Pass to next middleware
+});
+
+// ERROR-HANDLING MIDDLEWARE: 4 parameters
+app.use((err, req, res, next) => {
+  console.error('Error:', err.message);
+  res.status(500).send({ error: err.message });
+  // No next() needed unless delegating to another error handler
+});
+```
+
+The Router's middleware chain inspection determines handler arity:
+- **3 params** → Regular middleware, skipped if error exists, called on every path
+- **4 params** → Error handler, **only invoked when an error is passed** to `next(err)`
+
+## Composition: How It Flows Together
+
+```javascript
+const express = require('express');
+const app = express();
+
+// 1. Global middleware (ALL routes)
+app.use(express.json());
+app.use(logger);  // Logs every request
+
+// 2. Path-specific middleware (routes starting with /api)
+app.use('/api', authenticate);
+
+// 3. Route groups with isolated stacks
+const userRouter = express.Router();
+userRouter.get('/:id', validate, getUser);  // Stack: validate → getUser
+app.use('/api/users', userRouter);
+
+// 4. Error handler (must be last)
+app.use((err, req, res, next) => {
+  res.status(500).send('Error: ' + err.message);
+});
+
+// Flow for GET /api/users/123:
+// [json parser] → [logger] → [/api authenticate] 
+//   → [/api/users validate] → [/api/users getUser]
+//   → [error handler if any fails]
+```
+
+## Key Function Signatures
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `app.handle()` | `(req, res, callback?)` | Entry point, sets up prototypes, delegates to router |
+| `router.handle()` | `(req, res, done)` | Iterates middleware stack, calls each with next callback |
+| `middleware` | `(req, res, next)` | Regular middleware; calls `next()` to continue chain |
+| `error handler` | `(err, req, res, next)` | Error middleware; only invoked when error passed to next |
+| `next()` | `(err?)` | Advances to next middleware; if error arg provided, skips to error handlers |
+| `app.use()` | `(path?, ...fns)` | Registers middleware at optional path |
+| `app.method()` | `(path, ...fns)` | Registers route handler for HTTP verb (get, post, etc.) |
+
+## The Critical `next()` Mechanism
+
+The entire middleware chain is powered by the `next` callback:
+
+```javascript
+// Pseudocode of how the Router invokes middleware
+function executeMiddlewareStack(middlewares, req, res) {
+  let index = 0;
+  
+  function next(err) {
+    if (err) {
+      // Skip regular middleware, jump to error handlers
+      index = findFirstErrorHandler(middlewares, index);
+    } else {
+      index++;
+    }
+    
+    const middleware = middlewares[index];
+    if (!middleware) return;
+    
+    try {
+      middleware(req, res, next);
+    } catch (e) {
+      next(e);  // Pass error to error handler
+    }
+  }
+  
+  next();  // Start the chain
+}
+```

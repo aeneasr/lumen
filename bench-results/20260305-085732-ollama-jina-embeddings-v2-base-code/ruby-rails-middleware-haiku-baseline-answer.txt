@@ -1,0 +1,155 @@
+Based on my analysis of the Rails fixture code, here's a comprehensive explanation of **how the Rails middleware stack works**:
+
+## Rack Middleware Fundamentals
+
+**Core Concept**: Middleware follows the Rack specification, where each middleware is a callable that accepts an environment hash and returns a response triplet `[status, headers, body]`.
+
+**Call Signature**:
+```ruby
+# Basic Rack middleware interface
+class MyMiddleware
+  def initialize(app)
+    @app = app  # next middleware or endpoint
+  end
+
+  def call(env)
+    # Process request before passing down
+    status, headers, body = @app.call(env)
+    # Process response before returning
+    [status, headers, body]
+  end
+end
+```
+
+## Middleware Stack Assembly
+
+**Stack Building Process** (`application.rb:670`, `engine.rb:515-523`):
+
+```ruby
+# Rails builds the middleware stack in multiple layers:
+def app
+  @app || @app_build_lock.synchronize {
+    @app ||= begin
+      stack = default_middleware_stack           # 1. Base ActionDispatch stack
+      config.middleware = build_middleware.merge_into(stack)  # 2. Merge app config
+      config.middleware.build(endpoint)          # 3. Build final callable chain
+    end
+  }
+end
+```
+
+**Three-Layer Architecture**:
+1. **DefaultMiddlewareStack** — ActionDispatch default middleware (logging, exception handling, etc.)
+2. **ConfigMiddleware** — Application-configured middleware via `config.middleware`
+3. **Endpoint** — Final handler (routes, or custom Rack app)
+
+## ActionDispatch Integration
+
+**MiddlewareStack Classes** (`metal.rb:18-63`):
+
+```ruby
+# ActionDispatch::MiddlewareStack - base class (from Action Dispatch)
+class MiddlewareStack < ActionDispatch::MiddlewareStack
+  class Middleware < ActionDispatch::MiddlewareStack::Middleware
+    def initialize(klass, args, actions, strategy, block)
+      @actions = actions    # :only or :except actions
+      @strategy = strategy  # INCLUDE or EXCLUDE strategy
+      super(klass, args, block)
+    end
+
+    def valid?(action)
+      @strategy.call @actions, action  # Check if middleware applies
+    end
+  end
+
+  def build(action, app = nil, &block)
+    action = action.to_s
+    # Iterate middlewares in reverse, conditionally build each
+    middlewares.reverse.inject(app || block) do |a, middleware|
+      middleware.valid?(action) ? middleware.build(a) : a
+    end
+  end
+end
+```
+
+**Strategy Patterns**:
+```ruby
+INCLUDE = ->(list, action) { list.include? action }  # :only
+EXCLUDE = ->(list, action) { !list.include? action } # :except
+NULL    = ->(list, action) { true }                   # always
+```
+
+## Request Flow Through Stack
+
+**Execution Flow** (`engine.rb:532-535`):
+
+```ruby
+# 1. Request enters via Rack call
+def call(env)
+  req = build_request(env)      # Wrap raw Rack env
+  app.call(req.env)             # Pass through middleware stack
+end
+
+# 2. Stack processes from outermost to innermost:
+# Middleware1 → Middleware2 → Middleware3 → Endpoint
+#    ↓             ↓             ↓
+#  before       before        before
+#    ↓             ↓             ↓
+#    ←─────────────←─────────────
+#    ↑             ↑             ↑
+#  after        after         after
+```
+
+**Key Flow Points** (`application.rb:323-354`):
+- Environment merged with `env_config` (secrets, logger, exception handlers)
+- Middleware chain respects action filtering (`:only` / `:except`)
+- Response flows back up through each middleware
+
+## Custom Middleware Addition
+
+**At Application Level** (`application.rb:273`):
+```ruby
+# config/environments/production.rb
+Rails.application.configure do
+  config.middleware.use ExceptionNotifier, config_for(:exception_notification)
+end
+```
+
+**At Controller Level** (`metal.rb:14-16`):
+```ruby
+class PostsController < ApplicationController
+  use AuthenticationMiddleware, except: [:index, :show]
+  use LoggingMiddleware, only: [:create, :update, :delete]
+end
+```
+
+**At Engine Level** (`engine.rb:48-50`):
+```ruby
+class MyEngine < Rails::Engine
+  initializer "my_engine.add_middleware" do |app|
+    app.middleware.use MyEngine::Middleware
+  end
+end
+```
+
+## Key Classes & Modules
+
+| Class | Purpose |
+|-------|---------|
+| `Rails::Application` | Coordinates middleware stack building |
+| `ActionDispatch::MiddlewareStack` | Base Rack middleware chain management |
+| `ActionController::MiddlewareStack` | Extended with `:only`/`:except` filtering |
+| `Rails::Engine` | Middleware endpoint alternative to routes |
+| `Rack::Request` / `Rack::Response` | HTTP abstraction |
+
+## Important Methods
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `initialize(app)` | Middleware constructor | Store next app in chain |
+| `call(env)` | `(env) → [status, headers, body]` | Process request/response |
+| `build(action, app)` | MiddlewareStack method | Conditionally assemble chain |
+| `merge_into(stack)` | Merge config into base stack | Layer custom middleware |
+| `use(klass, *args, &block)` | Application API | Add middleware with options |
+
+This architecture enables Rails to provide a flexible, composable middleware system where each layer can inspect/modify the request before passing it down, and inspect/modify the response on the way back up.
